@@ -1,0 +1,172 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Comment {
+  id        String   @id @unique
+  content   String
+  postId    String
+  authorId  String
+  createdAt DateTime @default(now())
+  User      User     @relation(fields: [authorId], references: [id])
+  Post      Post     @relation(fields: [postId], references: [id])
+}
+
+model Event {
+  id                   String         @id
+  title                String
+  description          String?
+  gameId               String
+  prizePool            Float
+  startDate            DateTime
+  endDate              DateTime
+  isFeatured           Boolean        @default(false)
+  imageUrl             String?
+  registrationDeadline DateTime
+  maxParticipants      Int?
+  Game                 Game           @relation(fields: [gameId], references: [id])
+  Registration         Registration[]
+}
+
+model Game {
+  id          String  @id
+  name        String
+  description String?
+  icon        String?
+  Event       Event[]
+}
+
+model Like {
+  id        String   @id @unique
+  postId    String
+  userId    String
+  createdAt DateTime @default(now())
+  Post      Post     @relation(fields: [postId], references: [id])
+  User      User     @relation(fields: [userId], references: [id])
+
+  @@unique([postId, userId])
+}
+
+model Post {
+  id        String    @id @unique
+  title     String
+  content   String
+  authorId  String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime
+  imageUrl  String[]
+  Comment   Comment[]
+  Like      Like[]
+  User      User      @relation(fields: [authorId], references: [id])
+}
+
+model Registration {
+  id        String             @id
+  userId    String
+  eventId   String
+  createdAt DateTime           @default(now())
+  status    RegistrationStatus
+  Event     Event              @relation(fields: [eventId], references: [id])
+  User      User               @relation(fields: [userId], references: [id])
+}
+
+model User {
+  id           String         @id
+  username     String         @unique
+  email        String         @unique
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime
+  Comment      Comment[]
+  Like         Like[]
+  Post         Post[]
+  Registration Registration[]
+  // Relations
+    createdChallenges Challenge[] @relation("Creator")
+    receivedChallenges Challenge[] @relation("Invitee")
+    claims           Claim[]
+    notifications    Notification[]
+}
+model Challenge {
+    id            String          @id @default(uuid())
+    // by creatorId we mean creator's username same for inviteeId
+    creatorId     String
+    inviteeId     String
+    status        ChallengeStatus
+
+    game          String
+    description   String?
+    coins         Int
+    rules         Json
+    createdAt     DateTime        @default(now())
+    updatedAt     DateTime        @default(now())
+    acceptedAt    DateTime?
+    expiresAt     DateTime
+    completedAt   DateTime?
+
+    // New fields for tracking victory claims
+    winnerId      String?         // ID of the user who won
+    claimTime     DateTime?       // Time when the claim was made
+
+    // Relations
+    creator       User            @relation("Creator", fields: [creatorId], references: [username])
+    invitee       User            @relation("Invitee", fields: [inviteeId], references: [username])
+    claims        Claim[]         // Relationship to Claim model, if needed
+}
+
+
+model Claim {
+    id            String     @id @default(uuid())
+    challengeId   String
+    claimantId    String
+    claimedAt     DateTime   @default(now())
+
+    // Relations
+    challenge     Challenge  @relation(fields: [challengeId], references: [id])
+    claimant       User       @relation(fields: [claimantId], references: [username])
+}
+
+model Notification {
+    id            String     @id @default(uuid())
+    userId        String
+    type          NotificationType
+    data          Json
+    read          Boolean    @default(false)
+    createdAt     DateTime   @default(now())
+
+    // Relations
+    user          User      @relation(fields: [userId], references: [id])
+}
+
+enum ChallengeStatus {
+    PENDING
+    ACCEPTED
+    IN_PROGRESS
+    COMPLETED
+    EXPIRED
+    DISPUTED
+    STARTING
+}
+
+enum ClaimResult {
+    WIN
+    LOSS
+    DRAW
+}
+
+enum NotificationType {
+    CHALLENGE_RECEIVED
+    CHALLENGE_ACCEPTED
+    CHALLENGE_EXPIRED
+    CLAIM_SUBMITTED
+    RESULT_DISPUTED
+}
+enum RegistrationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
