@@ -76,95 +76,85 @@ model Registration {
 }
 
 model User {
-  id           String         @id
-  username     String         @unique
-  email        String         @unique
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime
-  Comment      Comment[]
-  Like         Like[]
-  Post         Post[]
-  Registration Registration[]
-  // Relations
-    createdChallenges Challenge[] @relation("Creator")
-    receivedChallenges Challenge[] @relation("Invitee")
-    claims           Claim[]
-    notifications    Notification[]
+  id                 String         @id
+  username           String         @unique
+  email              String         @unique
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime
+  createdChallenges  Challenge[]    @relation("Creator")
+  receivedChallenges Challenge[]    @relation("Invitee")
+  claims             Claim[]
+  Comment            Comment[]
+  Like               Like[]
+  notifications      Notification[]
+  Post               Post[]
+  Registration       Registration[]
 }
+
 model Challenge {
-    id            String          @id @default(uuid())
-    // by creatorId we mean creator's username same for inviteeId
-    creatorId     String
-    inviteeId     String
-    status        ChallengeStatus
-
-    game          String
-    description   String?
-    coins         Int
-    rules         Json
-    createdAt     DateTime        @default(now())
-    updatedAt     DateTime        @default(now())
-    acceptedAt    DateTime?
-    expiresAt     DateTime
-    completedAt   DateTime?
-
-    // New fields for tracking victory claims
-    winnerId      String?         // ID of the user who won
-    claimTime     DateTime?       // Time when the claim was made
-
-    // Relations
-    creator       User            @relation("Creator", fields: [creatorId], references: [username])
-    invitee       User            @relation("Invitee", fields: [inviteeId], references: [username])
-    claims        Claim[]         // Relationship to Claim model, if needed
+  id          String          @id @default(uuid())
+  creatorId   String
+  inviteeId   String
+  status      ChallengeStatus
+  game        String
+  description String?
+  rules       Json
+  createdAt   DateTime        @default(now())
+  acceptedAt  DateTime?
+  expiresAt   DateTime
+  completedAt DateTime?
+  coins       Int
+  claimTime   DateTime?
+  updatedAt   DateTime        @default(now())
+  winnerId    String?
+  creator     User            @relation("Creator", fields: [creatorId], references: [username])
+  invitee     User            @relation("Invitee", fields: [inviteeId], references: [username])
+  claims      Claim[]
 }
-
 
 model Claim {
-    id            String     @id @default(uuid())
-    challengeId   String
-    claimantId    String
-    claimedAt     DateTime   @default(now())
-
-    // Relations
-    challenge     Challenge  @relation(fields: [challengeId], references: [id])
-    claimant       User       @relation(fields: [claimantId], references: [username])
+  id          String    @id @default(uuid())
+  challengeId String
+  claimantId  String
+  claimedAt   DateTime  @default(now())
+  challenge   Challenge @relation(fields: [challengeId], references: [id])
+  claimant    User      @relation(fields: [claimantId], references: [username])
 }
 
 model Notification {
-    id            String     @id @default(uuid())
-    userId        String
-    type          NotificationType
-    data          Json
-    read          Boolean    @default(false)
-    createdAt     DateTime   @default(now())
-
-    // Relations
-    user          User      @relation(fields: [userId], references: [id])
+  id        String           @id @default(uuid())
+  userId    String
+  type      NotificationType
+  data      Json
+  read      Boolean          @default(false)
+  createdAt DateTime         @default(now())
+  user      User             @relation(fields: [userId], references: [id])
 }
 
 enum ChallengeStatus {
-    PENDING
-    ACCEPTED
-    IN_PROGRESS
-    COMPLETED
-    EXPIRED
-    DISPUTED
-    STARTING
+  PENDING
+  ACCEPTED
+  IN_PROGRESS
+  COMPLETED
+  EXPIRED
+  DISPUTED
+  STARTING
 }
 
 enum ClaimResult {
-    WIN
-    LOSS
-    DRAW
+  WIN
+  LOSS
+  DRAW
 }
 
 enum NotificationType {
-    CHALLENGE_RECEIVED
-    CHALLENGE_ACCEPTED
-    CHALLENGE_EXPIRED
-    CLAIM_SUBMITTED
-    RESULT_DISPUTED
+  CHALLENGE_RECEIVED
+  CHALLENGE_ACCEPTED
+  CHALLENGE_EXPIRED
+  CLAIM_SUBMITTED
+  RESULT_DISPUTED
 }
+
 enum RegistrationStatus {
   PENDING
   APPROVED

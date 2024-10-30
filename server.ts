@@ -84,7 +84,7 @@ function broadcastGameStateUpdate(
     .map((username) => onlineUsers.get(username))
     .filter((ws) => ws);
   const message = JSON.stringify({
-    type: `challengeStartedBy ${username}`,
+    type: `challengeStartedBy`,
     updateState,
   });
   usersInChallenge.forEach((ws) => {
@@ -129,8 +129,9 @@ wss.on("connection", (ws: WebSocket) => {
   ws.on("error", console.error);
 
   ws.on("message", async (message: string) => {
+    
     const userInfo = JSON.parse(message);
-
+    console.log(userInfo)
     if (userInfo.type === "setOnline") {
       const userExists = await prisma.user.findUnique({
         where: { username: userInfo.username },
