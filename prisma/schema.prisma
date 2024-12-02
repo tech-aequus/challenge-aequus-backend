@@ -77,10 +77,16 @@ model Registration {
 
 model User {
   id                 String         @id
-  username           String         @unique
   email              String         @unique
   createdAt          DateTime       @default(now())
   updatedAt          DateTime
+  generatedPassword  String?
+  emailVerified      DateTime?
+  image              String?
+  role               String         @default("user")
+  password           String?
+  name               String         @unique
+  Account            Account[]
   createdChallenges  Challenge[]    @relation("Creator")
   receivedChallenges Challenge[]    @relation("Invitee")
   claims             Claim[]
@@ -107,8 +113,8 @@ model Challenge {
   claimTime   DateTime?
   updatedAt   DateTime        @default(now())
   winnerId    String?
-  creator     User            @relation("Creator", fields: [creatorId], references: [username])
-  invitee     User            @relation("Invitee", fields: [inviteeId], references: [username])
+  creator     User            @relation("Creator", fields: [creatorId], references: [name])
+  invitee     User            @relation("Invitee", fields: [inviteeId], references: [name])
   claims      Claim[]
 }
 
@@ -118,7 +124,7 @@ model Claim {
   claimantId  String
   claimedAt   DateTime  @default(now())
   challenge   Challenge @relation(fields: [challengeId], references: [id])
-  claimant    User      @relation(fields: [claimantId], references: [username])
+  claimant    User      @relation(fields: [claimantId], references: [name])
 }
 
 model Notification {
@@ -129,6 +135,25 @@ model Notification {
   read      Boolean          @default(false)
   createdAt DateTime         @default(now())
   user      User             @relation(fields: [userId], references: [id])
+}
+
+model Account {
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime
+  User              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([provider, providerAccountId])
 }
 
 enum ChallengeStatus {

@@ -134,7 +134,7 @@ wss.on("connection", (ws: WebSocket) => {
     console.log(userInfo)
     if (userInfo.type === "setOnline") {
       const userExists = await prisma.user.findUnique({
-        where: { username: userInfo.username },
+        where: { name: userInfo.username },
         select: { id: true },
       });
 
