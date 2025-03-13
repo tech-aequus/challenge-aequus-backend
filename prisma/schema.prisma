@@ -7,134 +7,35 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Comment {
-  id        String   @id @unique
-  content   String
-  postId    String
-  authorId  String
-  createdAt DateTime @default(now())
-  User      User     @relation(fields: [authorId], references: [id])
-  Post      Post     @relation(fields: [postId], references: [id])
-}
-
-model Event {
-  id                   String         @id
-  title                String
-  description          String?
-  gameId               String
-  prizePool            Float
-  startDate            DateTime
-  endDate              DateTime
-  isFeatured           Boolean        @default(false)
-  imageUrl             String?
-  registrationDeadline DateTime
-  maxParticipants      Int?
-  Game                 Game           @relation(fields: [gameId], references: [id])
-  Registration         Registration[]
-}
-
-model Game {
-  id          String  @id
-  name        String
-  description String?
-  icon        String?
-  Event       Event[]
-}
-
-model Like {
-  id        String   @id @unique
-  postId    String
-  userId    String
-  createdAt DateTime @default(now())
-  Post      Post     @relation(fields: [postId], references: [id])
-  User      User     @relation(fields: [userId], references: [id])
-
-  @@unique([postId, userId])
-}
-
-model Post {
-  id        String    @id @unique
-  title     String
-  content   String
-  authorId  String
-  createdAt DateTime  @default(now())
-  updatedAt DateTime
-  imageUrl  String[]
-  Comment   Comment[]
-  Like      Like[]
-  User      User      @relation(fields: [authorId], references: [id])
-}
-
-model Registration {
-  id        String             @id
-  userId    String
-  eventId   String
-  createdAt DateTime           @default(now())
-  status    RegistrationStatus
-  Event     Event              @relation(fields: [eventId], references: [id])
-  User      User               @relation(fields: [userId], references: [id])
-}
-
 model User {
-  id                 String         @id
-  email              String         @unique
-  createdAt          DateTime       @default(now())
-  updatedAt          DateTime
-  generatedPassword  String?
-  emailVerified      DateTime?
-  image              String?
-  role               String         @default("user")
-  password           String?
-  name               String         @unique
-  Account            Account[]
-  createdChallenges  Challenge[]    @relation("Creator")
-  receivedChallenges Challenge[]    @relation("Invitee")
-  claims             Claim[]
-  Comment            Comment[]
-  Like               Like[]
-  notifications      Notification[]
-  Post               Post[]
-  Registration       Registration[]
-}
-
-model Challenge {
-  id          String          @id @default(uuid())
-  creatorId   String
-  inviteeId   String
-  status      ChallengeStatus
-  game        String
-  description String?
-  rules       Json
-  createdAt   DateTime        @default(now())
-  acceptedAt  DateTime?
-  expiresAt   DateTime
-  completedAt DateTime?
-  coins       Int
-  claimTime   DateTime?
-  updatedAt   DateTime        @default(now())
-  winnerId    String?
-  creator     User            @relation("Creator", fields: [creatorId], references: [name])
-  invitee     User            @relation("Invitee", fields: [inviteeId], references: [name])
-  claims      Claim[]
-}
-
-model Claim {
-  id          String    @id @default(uuid())
-  challengeId String
-  claimantId  String
-  claimedAt   DateTime  @default(now())
-  challenge   Challenge @relation(fields: [challengeId], references: [id])
-  claimant    User      @relation(fields: [claimantId], references: [name])
-}
-
-model Notification {
-  id        String           @id @default(uuid())
-  userId    String
-  type      NotificationType
-  data      Json
-  read      Boolean          @default(false)
-  createdAt DateTime         @default(now())
-  user      User             @relation(fields: [userId], references: [id])
+  id                                  String      @id @default(uuid())
+  email                               String      @unique
+  createdAt                           DateTime    @default(now())
+  updatedAt                           DateTime    @updatedAt
+  generatedPassword                   String?
+  emailVerified                       DateTime?
+  image                               String?
+  role                                String      @default("user")
+  password                            String?
+  name                                String      @unique
+  coins                               Int         @default(0)
+  isVerified                          Boolean     @default(false)
+  isAdmin                             Boolean     @default(false)
+  xp                                  Int         @default(0)
+  multiplier                          Float       @default(1)
+  multiplierExpiresAt                 DateTime?
+  purchasedItems                      String[]    @default([])
+  achievements                        String[]    @default([])
+  bio                                 String      @default("")
+  banner                              String      @default("https://aequus-posts.s3.us-west-2.amazonaws.com/uploads/1741861169744-banner.png")
+  accounts                            Account[]
+  Challenge_Challenge_creatorIdToUser Challenge[] @relation("Challenge_creatorIdToUser")
+  Challenge_Challenge_inviteeIdToUser Challenge[] @relation("Challenge_inviteeIdToUser")
+  Claim                               Claim[]
+  Event                               Event[]
+  factions                            Member[]
+  comments                            Comment[]
+  posts                               Post[]
 }
 
 model Account {
@@ -150,10 +51,111 @@ model Account {
   id_token          String?
   session_state     String?
   createdAt         DateTime @default(now())
-  updatedAt         DateTime
-  User              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  updatedAt         DateTime @updatedAt
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([provider, providerAccountId])
+}
+
+model Post {
+  id        Int       @id @default(autoincrement())
+  userId    String
+  body      String
+  postImage String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  likeIds   String[]
+  comments  Comment[]
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("posts")
+}
+
+model Comment {
+  id           Int      @id @default(autoincrement())
+  userId       String
+  postId       Int
+  body         String
+  commentImage String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  post         Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("comments")
+}
+
+model Challenge {
+  id                             String          @id  @default(uuid())
+  creatorId                      String
+  inviteeId                      String
+  status                         ChallengeStatus
+  game                           String
+  description                    String?
+  rules                          Json
+  createdAt                      DateTime        @default(now())
+  acceptedAt                     DateTime?
+  expiresAt                      DateTime
+  completedAt                    DateTime?
+  coins                          Int
+  claimTime                      DateTime?
+  updatedAt                      DateTime        @default(now())
+  winnerId                       String?
+  User_Challenge_creatorIdToUser User            @relation("Challenge_creatorIdToUser", fields: [creatorId], references: [name])
+  User_Challenge_inviteeIdToUser User            @relation("Challenge_inviteeIdToUser", fields: [inviteeId], references: [name])
+  Claim                          Claim[]
+}
+
+model Claim {
+  id          String    @id
+  challengeId String
+  claimantId  String
+  claimedAt   DateTime  @default(now())
+  Challenge   Challenge @relation(fields: [challengeId], references: [id])
+  User        User      @relation(fields: [claimantId], references: [name])
+}
+
+model Event {
+  prizePool             Float?
+  Description           String
+  authorId              String
+  createdAt             DateTime @default(now())
+  discordCommunityLink  String?
+  eventPoster           String?
+  game                  String
+  gameProfileImage      String?
+  isFreeToRegister      Boolean  @default(true)
+  liveStreamLinks       String?
+  maxParticipantAllowed Int
+  name                  String
+  registerAmount        Float?
+  registerBefore        DateTime
+  updatedAt             DateTime @default(now())
+  usersRegistered       String[]
+  id                    Int      @id @default(autoincrement())
+  author                User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+}
+
+model Faction {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String
+  imageUrl    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  members     Member[]
+}
+
+model Member {
+  id        String   @id @default(uuid())
+  userId    String
+  factionId String
+  joinedAt  DateTime @default(now())
+  coins     Int      @default(0)
+  faction   Faction  @relation(fields: [factionId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@unique([userId, factionId])
 }
 
 enum ChallengeStatus {
@@ -166,22 +168,33 @@ enum ChallengeStatus {
   STARTING
 }
 
-enum ClaimResult {
-  WIN
-  LOSS
-  DRAW
+model Game {
+  id              String   @id @default(uuid())
+  name            String   @unique
+  imageUrl        String
+  playersOnline   Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }
 
-enum NotificationType {
-  CHALLENGE_RECEIVED
-  CHALLENGE_ACCEPTED
-  CHALLENGE_EXPIRED
-  CLAIM_SUBMITTED
-  RESULT_DISPUTED
+model StoreItem {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String
+  imageUrl    String?
+  cost        Int
+  type        String   // e.g., "avatar", "badge", "booster"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
-enum RegistrationStatus {
-  PENDING
-  APPROVED
-  REJECTED
+model Achievement {
+  id              String   @id @default(uuid())
+  game            String
+  achievementName String   @unique
+  challenge       String
+  description     String
+  bannerImage     String   @default("https://aequus-posts.s3.us-west-2.amazonaws.com/uploads/1741861169744-banner.png")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }
