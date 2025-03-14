@@ -21,6 +21,9 @@ FROM base AS prerelease
 COPY --from=install /temp/dev/node_modules node_modules
 COPY . .
 
+# Run Prisma generate
+RUN bunx prisma generate
+
 # [optional] tests & build
 ENV NODE_ENV=production
 RUN bun test
@@ -30,9 +33,15 @@ RUN bun run build
 FROM base AS release
 COPY --from=install /temp/prod/node_modules node_modules
 COPY --from=prerelease /usr/src/app/server.ts .
+COPY --from=prerelease /usr/src/app/db.ts .
 COPY --from=prerelease /usr/src/app/package.json .
+# Copy Prisma schema and generated client
+COPY --from=prerelease /usr/src/app/prisma ./prisma
+COPY --from=prerelease /usr/src/app/node_modules/.prisma ./node_modules/.prisma
+# Also copy the utils directory which contains logger.ts
+COPY --from=prerelease /usr/src/app/utils ./utils
 
 # run the app
 USER bun
-EXPOSE 3000/tcp
+EXPOSE 8080/tcp
 ENTRYPOINT [ "bun", "run", "server.ts" ]
