@@ -23,7 +23,7 @@ COPY . .
 
 # Run Prisma generate
 RUN bunx prisma generate
-
+#test
 # [optional] tests & build
 ENV NODE_ENV=production
 RUN bun test
