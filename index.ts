@@ -8,7 +8,7 @@ async function createUser(count: number) {
     const newUser = await prisma.user.create({
       data: {
         email: `user${count}@gmail.com`,
-        username: `user${count}`,
+        name: `user${count}`,
         id: count.toString(), 
         updatedAt: new Date(),
       },

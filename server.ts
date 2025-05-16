@@ -33,6 +33,7 @@ function broadcastChallengeUpdate(updatedChallenge: {
   game: string;
   description: string | null;
   coins: number;
+  xp: number;
   rules: JsonValue;
   createdAt: Date;
   updatedAt: Date;
@@ -69,6 +70,7 @@ function broadcastGameStateUpdate(
     game: string;
     description: string | null;
     coins: number;
+    xp: number;
     rules: JsonValue;
     createdAt: Date;
     updatedAt: Date;
@@ -102,6 +104,7 @@ function broadcastNewChallenge(newChallenge: {
   game: string;
   description: string | null;
   coins: number;
+  xp: number;
   rules: JsonValue;
   createdAt: Date;
   updatedAt: Date;
@@ -153,6 +156,7 @@ wss.on("connection", (ws: WebSocket) => {
       const {
         creatorUsername,
         coins,
+        xp,
         opponentUsername,
         game,
         description,
@@ -164,6 +168,7 @@ wss.on("connection", (ws: WebSocket) => {
           creatorId: creatorUsername,
           inviteeId: opponentUsername,
           coins,
+          xp,
           status: "PENDING",
           description: description || null,
           rules: rules || { timeLimit: "30 minutes", maxMoves: 100 },

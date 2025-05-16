@@ -8,34 +8,40 @@ datasource db {
 }
 
 model User {
-  id                                  String      @id @default(uuid())
-  email                               String      @unique
-  createdAt                           DateTime    @default(now())
-  updatedAt                           DateTime    @updatedAt
+  id                                  String          @id @default(uuid())
+  email                               String          @unique
+  createdAt                           DateTime        @default(now())
+  updatedAt                           DateTime        @updatedAt
   generatedPassword                   String?
   emailVerified                       DateTime?
   image                               String?
-  role                                String      @default("user")
+  role                                String          @default("user")
   password                            String?
-  name                                String      @unique
-  coins                               Int         @default(0)
-  isVerified                          Boolean     @default(false)
-  isAdmin                             Boolean     @default(false)
-  xp                                  Int         @default(0)
-  multiplier                          Float       @default(1)
+  name                                String          @unique
+  coins                               Int             @default(0)
+  isVerified                          Boolean         @default(false)
+  isAdmin                             Boolean         @default(false)
+  xp                                  Int             @default(0)
+  multiplier                          Float           @default(1)
   multiplierExpiresAt                 DateTime?
-  purchasedItems                      String[]    @default([])
-  achievements                        String[]    @default([])
-  bio                                 String      @default("")
-  banner                              String      @default("https://aequus-posts.s3.us-west-2.amazonaws.com/uploads/1741861169744-banner.png")
+  purchasedItems                      String[]        @default([])
+  achievements                        String[]        @default([])
+  bio                                 String          @default("")
+  banner                              String          @default("https://aequus-posts.s3.us-west-2.amazonaws.com/uploads/1741861169744-banner.png")
   accounts                            Account[]
-  Challenge_Challenge_creatorIdToUser Challenge[] @relation("Challenge_creatorIdToUser")
-  Challenge_Challenge_inviteeIdToUser Challenge[] @relation("Challenge_inviteeIdToUser")
+  Challenge_Challenge_creatorIdToUser Challenge[]     @relation("Challenge_creatorIdToUser")
+  Challenge_Challenge_inviteeIdToUser Challenge[]     @relation("Challenge_inviteeIdToUser")
   Claim                               Claim[]
   Event                               Event[]
   factions                            Member[]
   comments                            Comment[]
   posts                               Post[]
+  chats                                        Chat[]          @relation("UserChats") // participant in chats
+  adminOf                                      Chat[]          @relation("ChatAdmin") // admin of chats
+  messages                                     ChatMessage[]
+  sentRequests                        FriendRequest[] @relation("SentRequests")
+  receivedRequests                    FriendRequest[] @relation("ReceivedRequests")
+   openChallenges OpenChallenge[] @relation("Creator")
 }
 
 model Account {
@@ -58,15 +64,16 @@ model Account {
 }
 
 model Post {
-  id        Int       @id @default(autoincrement())
-  userId    String
-  body      String
-  postImage String?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  likeIds   String[]
-  comments  Comment[]
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id             Int             @id @default(autoincrement())
+  userId         String
+  body           String
+  postImage      String?
+  visibility     String          @default("PUBLIC")
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  likeIds        String[]
+  comments       Comment[]
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("posts")
 }
@@ -86,7 +93,7 @@ model Comment {
 }
 
 model Challenge {
-  id                             String          @id  @default(uuid())
+  id                             String          @id @default(uuid())
   creatorId                      String
   inviteeId                      String
   status                         ChallengeStatus
@@ -98,12 +105,15 @@ model Challenge {
   expiresAt                      DateTime
   completedAt                    DateTime?
   coins                          Int
+  xp         Int      @default(0)
   claimTime                      DateTime?
   updatedAt                      DateTime        @default(now())
   winnerId                       String?
   User_Challenge_creatorIdToUser User            @relation("Challenge_creatorIdToUser", fields: [creatorId], references: [name])
   User_Challenge_inviteeIdToUser User            @relation("Challenge_inviteeIdToUser", fields: [inviteeId], references: [name])
+  
   Claim                          Claim[]
+
 }
 
 model Claim {
@@ -141,9 +151,12 @@ model Faction {
   name        String   @unique
   description String
   imageUrl    String?
+  chatId      String?   @unique
+  chat        Chat?     @relation(fields: [chatId], references: [id])
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   members     Member[]
+  isPrivate   Boolean @default(false)
 }
 
 model Member {
@@ -158,23 +171,13 @@ model Member {
   @@unique([userId, factionId])
 }
 
-enum ChallengeStatus {
-  PENDING
-  ACCEPTED
-  IN_PROGRESS
-  COMPLETED
-  EXPIRED
-  DISPUTED
-  STARTING
-}
-
 model Game {
-  id              String   @id @default(uuid())
-  name            String   @unique
-  imageUrl        String
-  playersOnline   Int      @default(0)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id            String   @id @default(uuid())
+  name          String   @unique
+  imageUrl      String
+  playersOnline Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }
 
 model StoreItem {
@@ -183,7 +186,7 @@ model StoreItem {
   description String
   imageUrl    String?
   cost        Int
-  type        String   // e.g., "avatar", "badge", "booster"
+  type        String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
@@ -197,4 +200,93 @@ model Achievement {
   bannerImage     String   @default("https://aequus-posts.s3.us-west-2.amazonaws.com/uploads/1741861169744-banner.png")
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+}
+
+model FriendRequest {
+  id         String              @id @default(uuid())
+  senderId   String
+  receiverId String
+  status     FriendRequestStatus @default(PENDING)
+  createdAt  DateTime            @default(now())
+  receiver   User                @relation("ReceivedRequests", fields: [receiverId], references: [id])
+  sender     User                @relation("SentRequests", fields: [senderId], references: [id])
+
+  @@unique([senderId, receiverId])
+}
+
+enum ChallengeStatus {
+  PENDING
+  ACCEPTED
+  IN_PROGRESS
+  COMPLETED
+  EXPIRED
+  DISPUTED
+  STARTING
+}
+
+enum FriendRequestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+
+model OpenChallenge {
+  id         String   @id @default(cuid())
+  creatorId  String
+  creator    User     @relation("Creator", fields: [creatorId], references: [id])
+  game       String
+  coins      Int
+  xp         Int      @default(0)
+  about      String?
+  status     String   @default("OPEN") // OPEN, ACCEPTED, COMPLETED, CANCELLED
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model Chat {
+  id          String  @id @default(uuid())
+  name        String
+  isGroupChat Boolean @default(false)
+
+  messages ChatMessage[] @relation("AllMessages")
+
+  lastMessage   ChatMessage? @relation("LastMessage", fields: [lastMessageId], references: [id])
+  lastMessageId String?      @unique
+
+  participants User[]  @relation("UserChats")
+  admin        User?   @relation("ChatAdmin", fields: [adminId], references: [id])
+  adminId      String?
+
+  faction      Faction? 
+  factionId    String?  @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ChatMessage {
+  id       String @id @default(uuid())
+  content  String
+  sender   User   @relation(fields: [senderId], references: [id])
+  senderId String
+
+  lastMessageOfChat Chat? @relation("LastMessage")
+
+  chat   Chat   @relation("AllMessages", fields: [chatId], references: [id])
+  chatId String
+
+  attachments MessageAttachment[] // 1-to-many relation
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model MessageAttachment {
+  id  String @id @default(uuid())
+  url String
+  key String // S3 key for deletion
+
+  message   ChatMessage @relation(fields: [messageId], references: [id])
+  messageId String
 }
