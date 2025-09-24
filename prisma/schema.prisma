@@ -8,40 +8,45 @@ datasource db {
 }
 
 model User {
-  id                                  String          @id @default(uuid())
-  email                               String          @unique
-  createdAt                           DateTime        @default(now())
-  updatedAt                           DateTime        @updatedAt
+  id                                  String                    @id @default(uuid())
+  email                               String                    @unique
+  createdAt                           DateTime                  @default(now())
+  updatedAt                           DateTime                  @updatedAt
   generatedPassword                   String?
   emailVerified                       DateTime?
   image                               String?
-  role                                String          @default("user")
+  role                                String                    @default("user")
   password                            String?
-  name                                String          @unique
-  coins                               Int             @default(0)
-  isVerified                          Boolean         @default(false)
-  isAdmin                             Boolean         @default(false)
-  xp                                  Int             @default(0)
-  multiplier                          Float           @default(1)
+  name                                String                    @unique
+  coins                               Int                       @default(0)
+  isVerified                          Boolean                   @default(false)
+  isAdmin                             Boolean                   @default(false)
+  multiplier                          Float                     @default(1)
   multiplierExpiresAt                 DateTime?
-  purchasedItems                      String[]        @default([])
-  achievements                        String[]        @default([])
-  bio                                 String          @default("")
-  banner                              String          @default("https://aequus-posts.s3.us-west-2.amazonaws.com/uploads/1741861169744-banner.png")
+  xp                                  Int                       @default(0)
+  purchasedItems                      String[]                  @default([])
+  achievements                        String[]                  @default([])
+  banner                              String                    @default("https://aequus-posts.s3.us-west-2.amazonaws.com/uploads/1741861169744-banner.png")
+  bio                                 String                    @default("")
+  hasChangedUsername                  Boolean                   @default(false)
   accounts                            Account[]
-  Challenge_Challenge_creatorIdToUser Challenge[]     @relation("Challenge_creatorIdToUser")
-  Challenge_Challenge_inviteeIdToUser Challenge[]     @relation("Challenge_inviteeIdToUser")
+  BattleRoyaleParticipant             BattleRoyaleParticipant[]
+  Challenge_Challenge_creatorIdToUser Challenge[]               @relation("Challenge_creatorIdToUser")
+  Challenge_Challenge_inviteeIdToUser Challenge[]               @relation("Challenge_inviteeIdToUser")
+  adminOf                             Chat[]                    @relation("ChatAdmin")
+  messages                            ChatMessage[]
   Claim                               Claim[]
   Event                               Event[]
+  FalseClaimReport                    FalseClaimReport[]
+  receivedRequests                    FriendRequest[]           @relation("ReceivedRequests")
+  sentRequests                        FriendRequest[]           @relation("SentRequests")
   factions                            Member[]
+  openChallenges                      OpenChallenge[]           @relation("Creator")
+  Team                                Team[]
+  TeamMember                          TeamMember[]
   comments                            Comment[]
   posts                               Post[]
-  chats                                        Chat[]          @relation("UserChats") // participant in chats
-  adminOf                                      Chat[]          @relation("ChatAdmin") // admin of chats
-  messages                                     ChatMessage[]
-  sentRequests                        FriendRequest[] @relation("SentRequests")
-  receivedRequests                    FriendRequest[] @relation("ReceivedRequests")
-   openChallenges OpenChallenge[] @relation("Creator")
+  chats                               Chat[]                    @relation("UserChats")
 }
 
 model Account {
@@ -64,16 +69,16 @@ model Account {
 }
 
 model Post {
-  id             Int             @id @default(autoincrement())
-  userId         String
-  body           String
-  postImage      String?
-  visibility     String          @default("PUBLIC")
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-  likeIds        String[]
-  comments       Comment[]
-  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id         Int       @id @default(autoincrement())
+  userId     String
+  body       String
+  postImage  String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  likeIds    String[]
+  visibility String    @default("PUBLIC")
+  comments   Comment[]
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("posts")
 }
@@ -93,27 +98,27 @@ model Comment {
 }
 
 model Challenge {
-  id                             String          @id @default(uuid())
+  id                             String             @id @default(uuid())
   creatorId                      String
-  inviteeId                      String
+  inviteeId                      String?
   status                         ChallengeStatus
   game                           String
   description                    String?
   rules                          Json
-  createdAt                      DateTime        @default(now())
+  createdAt                      DateTime           @default(now())
   acceptedAt                     DateTime?
   expiresAt                      DateTime
   completedAt                    DateTime?
   coins                          Int
-  xp         Int      @default(0)
   claimTime                      DateTime?
-  updatedAt                      DateTime        @default(now())
+  updatedAt                      DateTime           @default(now())
   winnerId                       String?
-  User_Challenge_creatorIdToUser User            @relation("Challenge_creatorIdToUser", fields: [creatorId], references: [name])
-  User_Challenge_inviteeIdToUser User            @relation("Challenge_inviteeIdToUser", fields: [inviteeId], references: [name])
-  
+  xp                             Int                @default(0)
+  isOpen                         Boolean            @default(false)
+  User_Challenge_creatorIdToUser User               @relation("Challenge_creatorIdToUser", fields: [creatorId], references: [name])
+  User_Challenge_inviteeIdToUser User?              @relation("Challenge_inviteeIdToUser", fields: [inviteeId], references: [name])
   Claim                          Claim[]
-
+  FalseClaimReport               FalseClaimReport[]
 }
 
 model Claim {
@@ -126,24 +131,39 @@ model Claim {
 }
 
 model Event {
-  prizePool             Float?
-  Description           String
-  authorId              String
-  createdAt             DateTime @default(now())
-  discordCommunityLink  String?
-  eventPoster           String?
-  game                  String
-  gameProfileImage      String?
-  isFreeToRegister      Boolean  @default(true)
-  liveStreamLinks       String?
-  maxParticipantAllowed Int
-  name                  String
-  registerAmount        Float?
-  registerBefore        DateTime
-  updatedAt             DateTime @default(now())
-  usersRegistered       String[]
-  id                    Int      @id @default(autoincrement())
-  author                User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  prizePool               Float?
+  authorId                String
+  createdAt               DateTime                  @default(now())
+  discordCommunityLink    String?
+  eventPoster             String?
+  game                    String
+  liveStreamLinks         String?
+  maxParticipantAllowed   Int?
+  name                    String
+  registerAmount          Float?
+  registerBefore          DateTime
+  updatedAt               DateTime                  @default(now())
+  usersRegistered         String[]
+  id                      String                    @id
+  endDate                 DateTime
+  minParticipantRequired  Int?
+  startDate               DateTime
+  status                  EventStatus?              @default(UPCOMING)
+  description             String
+  gameType                GameType                  @default(TEAM)
+  maxTeamsAllowed         Int?
+  minTeamsRequired        Int?
+  platform                Platform
+  teamSize                Int?
+  winnerId                String?
+  isCoinsDispursed        Boolean                   @default(false)
+  disputeReason           String?
+  isCoinsRefunded         Boolean                   @default(false)
+  isAuthorPaid            Boolean                   @default(false)
+  BattleRoyaleParticipant BattleRoyaleParticipant[]
+  author                  User                      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  Match                   Match[]
+  Team                    Team[]
 }
 
 model Faction {
@@ -151,12 +171,12 @@ model Faction {
   name        String   @unique
   description String
   imageUrl    String?
-  chatId      String?   @unique
-  chat        Chat?     @relation(fields: [chatId], references: [id])
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  isPrivate   Boolean  @default(false)
+  chatId      String?  @unique
+  chat        Chat?    @relation(fields: [chatId], references: [id])
   members     Member[]
-  isPrivate   Boolean @default(false)
 }
 
 model Member {
@@ -214,6 +234,140 @@ model FriendRequest {
   @@unique([senderId, receiverId])
 }
 
+model OpenChallenge {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  about     String?
+  coins     Int
+  creatorId String
+  game      String
+  status    String   @default("OPEN")
+  xp        Int      @default(0)
+  creator   User     @relation("Creator", fields: [creatorId], references: [id])
+}
+
+model Chat {
+  id            String        @id @default(uuid())
+  name          String
+  isGroupChat   Boolean       @default(false)
+  lastMessageId String?       @unique
+  adminId       String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  factionId     String?       @unique
+  admin         User?         @relation("ChatAdmin", fields: [adminId], references: [id])
+  lastMessage   ChatMessage?  @relation("LastMessage", fields: [lastMessageId], references: [id])
+  messages      ChatMessage[] @relation("AllMessages")
+  faction       Faction?
+  participants  User[]        @relation("UserChats")
+}
+
+model ChatMessage {
+  id                String              @id @default(uuid())
+  content           String
+  senderId          String
+  chatId            String
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  lastMessageOfChat Chat?               @relation("LastMessage")
+  chat              Chat                @relation("AllMessages", fields: [chatId], references: [id])
+  sender            User                @relation(fields: [senderId], references: [id])
+  attachments       MessageAttachment[]
+}
+
+model MessageAttachment {
+  id        String      @id @default(uuid())
+  url       String
+  key       String
+  messageId String
+  message   ChatMessage @relation(fields: [messageId], references: [id])
+}
+
+model AppSettings {
+  id        String   @id
+  coinPrice Json
+  updatedAt DateTime
+}
+
+model BattleRoyaleParticipant {
+  id           String    @id
+  eventId      String
+  userId       String
+  score        Int       @default(0)
+  placement    Int?
+  eliminatedAt DateTime?
+  proofUrl     String?
+  createdAt    DateTime  @default(now())
+  Event        Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  User         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, userId])
+}
+
+model FalseClaimReport {
+  id          String    @id
+  challengeId String
+  reporterId  String
+  reason      String
+  attachment  String?
+  createdAt   DateTime  @default(now())
+  Challenge   Challenge @relation(fields: [challengeId], references: [id])
+  User        User      @relation(fields: [reporterId], references: [id])
+}
+
+model Match {
+  id                        String      @id
+  eventId                   String
+  teamAId                   String?
+  teamBId                   String?
+  startTime                 DateTime?
+  status                    MatchStatus @default(SCHEDULED)
+  winnerId                  String?
+  proofAUrl                 String?
+  proofBUrl                 String?
+  createdAt                 DateTime    @default(now())
+  updatedAt                 DateTime
+  nextMatchId               String?
+  roundNumber               Int         @default(1)
+  Event                     Event       @relation(fields: [eventId], references: [id])
+  Match                     Match?      @relation("MatchToMatch", fields: [nextMatchId], references: [id])
+  other_Match               Match[]     @relation("MatchToMatch")
+  Team_Match_teamAIdToTeam  Team?       @relation("Match_teamAIdToTeam", fields: [teamAId], references: [id])
+  Team_Match_teamBIdToTeam  Team?       @relation("Match_teamBIdToTeam", fields: [teamBId], references: [id])
+  Team_Match_winnerIdToTeam Team?       @relation("Match_winnerIdToTeam", fields: [winnerId], references: [id])
+}
+
+model Team {
+  id                         String       @id
+  name                       String
+  eventId                    String
+  isPrivate                  Boolean      @default(false)
+  createdAt                  DateTime     @default(now())
+  updatedAt                  DateTime
+  creatorId                  String
+  status                     TeamStatus   @default(ACTIVE)
+  Match_Match_teamAIdToTeam  Match[]      @relation("Match_teamAIdToTeam")
+  Match_Match_teamBIdToTeam  Match[]      @relation("Match_teamBIdToTeam")
+  Match_Match_winnerIdToTeam Match[]      @relation("Match_winnerIdToTeam")
+  User                       User         @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  Event                      Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  TeamMember                 TeamMember[]
+
+  @@unique([eventId, name])
+}
+
+model TeamMember {
+  id       String   @id
+  teamId   String
+  userId   String
+  joinedAt DateTime @default(now())
+  Team     Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  User     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+}
+
 enum ChallengeStatus {
   PENDING
   ACCEPTED
@@ -222,6 +376,9 @@ enum ChallengeStatus {
   EXPIRED
   DISPUTED
   STARTING
+  CANCELLED
+  DISPUTE_RESOLVED
+  OPEN
 }
 
 enum FriendRequestStatus {
@@ -230,63 +387,34 @@ enum FriendRequestStatus {
   REJECTED
 }
 
-
-model OpenChallenge {
-  id         String   @id @default(cuid())
-  creatorId  String
-  creator    User     @relation("Creator", fields: [creatorId], references: [id])
-  game       String
-  coins      Int
-  xp         Int      @default(0)
-  about      String?
-  status     String   @default("OPEN") // OPEN, ACCEPTED, COMPLETED, CANCELLED
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+enum EventStatus {
+  UPCOMING
+  ONGOING
+  COMPLETED
+  CANCELLED
 }
 
-model Chat {
-  id          String  @id @default(uuid())
-  name        String
-  isGroupChat Boolean @default(false)
-
-  messages ChatMessage[] @relation("AllMessages")
-
-  lastMessage   ChatMessage? @relation("LastMessage", fields: [lastMessageId], references: [id])
-  lastMessageId String?      @unique
-
-  participants User[]  @relation("UserChats")
-  admin        User?   @relation("ChatAdmin", fields: [adminId], references: [id])
-  adminId      String?
-
-  faction      Faction? 
-  factionId    String?  @unique
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+enum GameType {
+  TEAM
+  BATTLE_ROYALE
 }
 
-model ChatMessage {
-  id       String @id @default(uuid())
-  content  String
-  sender   User   @relation(fields: [senderId], references: [id])
-  senderId String
-
-  lastMessageOfChat Chat? @relation("LastMessage")
-
-  chat   Chat   @relation("AllMessages", fields: [chatId], references: [id])
-  chatId String
-
-  attachments MessageAttachment[] // 1-to-many relation
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+enum MatchStatus {
+  SCHEDULED
+  ONGOING
+  COMPLETED
+  DISPUTED
+  PENDING
 }
 
-model MessageAttachment {
-  id  String @id @default(uuid())
-  url String
-  key String // S3 key for deletion
+enum Platform {
+  PC
+  CONSOLE
+  MOBILE
+  CROSS_PLATFORM
+}
 
-  message   ChatMessage @relation(fields: [messageId], references: [id])
-  messageId String
+enum TeamStatus {
+  ACTIVE
+  ELIMINATED
 }
