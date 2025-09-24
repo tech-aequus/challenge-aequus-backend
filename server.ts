@@ -4,7 +4,7 @@ import { logger } from "./utils/logger";
 import type { $Enums } from "@prisma/client";
 import type { JsonValue } from "@prisma/client/runtime/library";
 
-const wss = new WebSocketServer({ port: 8081 });
+const wss = new WebSocketServer({ port: 8080 });
 const onlineUsers = new Map();
 const startChallengeMap = new Map();
 
