@@ -10,6 +10,34 @@ const startChallengeMap = new Map();
 
 const winnerSelections = new Map(); // Format: Map<gameId, Map<playerId, selectedWinner>>
 
+// Load winner selections from database on startup
+async function loadWinnerSelectionsFromDB() {
+  try {
+    const selections = await prisma.winnerSelection.findMany({
+      include: {
+        Challenge: {
+          select: { status: true }
+        }
+      }
+    });
+
+    selections.forEach(selection => {
+      // Only load selections for active challenges
+      if (selection.Challenge.status === 'IN_PROGRESS') {
+        if (!winnerSelections.has(selection.challengeId)) {
+          winnerSelections.set(selection.challengeId, new Map());
+        }
+        const gameSelections = winnerSelections.get(selection.challengeId);
+        gameSelections.set(selection.playerId, selection.selectedWinner);
+      }
+    });
+
+    logger.info(`Loaded ${selections.length} winner selections from database`);
+  } catch (error) {
+    logger.error(`Failed to load winner selections from database: ${error}`);
+  }
+}
+
 function broadcastOnlineUsers() {
   const onlineUsernames = Array.from(onlineUsers.keys());
   const message = JSON.stringify({
@@ -212,55 +240,133 @@ wss.on("connection", (ws: WebSocket) => {
           `Winner selection received: gameId=${gameId}, playerId=${playerId}, selectedWinner=${selectedWinner}`
         );
 
-        // Initialize the game's selections if it doesn't exist
-        if (!winnerSelections.has(gameId)) {
-          winnerSelections.set(gameId, new Map());
-        }
+        try {
+          // Save to database using upsert (create or update)
+          await prisma.winnerSelection.upsert({
+            where: {
+              challengeId_playerId: {
+                challengeId: gameId,
+                playerId: playerId
+              }
+            },
+            create: {
+              challengeId: gameId,
+              playerId: playerId,
+              selectedWinner: selectedWinner
+            },
+            update: {
+              selectedWinner: selectedWinner,
+              updatedAt: new Date()
+            }
+          });
 
-        // Store the selection
-        const gameSelections = winnerSelections.get(gameId);
-        gameSelections.set(playerId, selectedWinner);
+          // Initialize the game's selections if it doesn't exist
+          if (!winnerSelections.has(gameId)) {
+            winnerSelections.set(gameId, new Map());
+          }
 
-        // Convert Map to object for JSON serialization
-        const selectionsObj: Record<string, string> = {};
-        gameSelections.forEach((winner: string, player: string) => {
-          selectionsObj[player] = winner;
-        });
+          // Store the selection in memory cache
+          const gameSelections = winnerSelections.get(gameId);
+          gameSelections.set(playerId, selectedWinner);
 
-        logger.info(
-          `Current selections for game ${gameId}:`,
-          JSON.stringify(selectionsObj)
-        );
-
-        // Broadcast the updated selections to both players
-        broadcastToChallengePlayers(gameId, {
-          type: "winnerSelectionUpdate",
-          gameId,
-          playerId,
-          selectedWinner,
-          allSelections: selectionsObj,
-        });
-
-        logger.info(`Winner selection broadcasted for game ${gameId}`);
-      }
-
-      // Handle request for all winner selections
-      if (userInfo.type === "getWinnerSelections") {
-        const allSelections: Record<string, Record<string, string>> = {};
-        winnerSelections.forEach((gameSelections, gameId: string) => {
+          // Convert Map to object for JSON serialization
           const selectionsObj: Record<string, string> = {};
           gameSelections.forEach((winner: string, player: string) => {
             selectionsObj[player] = winner;
           });
-          allSelections[gameId] = selectionsObj;
-        });
 
-        ws.send(
-          JSON.stringify({
-            type: "allWinnerSelections",
-            selections: allSelections,
-          })
-        );
+          logger.info(
+            `Current selections for game ${gameId}:`,
+            JSON.stringify(selectionsObj)
+          );
+
+          // Broadcast the updated selections to both players
+          broadcastToChallengePlayers(gameId, {
+            type: "winnerSelectionUpdate",
+            gameId,
+            playerId,
+            selectedWinner,
+            allSelections: selectionsObj,
+          });
+
+          logger.info(`Winner selection saved to DB and broadcasted for game ${gameId}`);
+        } catch (error) {
+          logger.error(`Failed to save winner selection to database: ${error}`);
+          ws.send(
+            JSON.stringify({
+              type: "error",
+              message: "Failed to save winner selection",
+            })
+          );
+        }
+      }
+
+      // Handle request for all winner selections
+      if (userInfo.type === "getWinnerSelections") {
+        logger.info(`📥 getWinnerSelections request from ${userInfo.username}`);
+        try {
+          // Load fresh data from database
+          const dbSelections = await prisma.winnerSelection.findMany({
+            include: {
+              Challenge: {
+                select: { status: true }
+              }
+            }
+          });
+
+          logger.info(`📊 Found ${dbSelections.length} winner selections in database`);
+
+          // Update memory cache and build response
+          const allSelections: Record<string, Record<string, string>> = {};
+
+          dbSelections.forEach(selection => {
+            // Only include selections for active challenges
+            if (selection.Challenge.status === 'IN_PROGRESS') {
+              if (!allSelections[selection.challengeId]) {
+                allSelections[selection.challengeId] = {};
+              }
+              allSelections[selection.challengeId][selection.playerId] = selection.selectedWinner;
+
+              // Update memory cache
+              if (!winnerSelections.has(selection.challengeId)) {
+                winnerSelections.set(selection.challengeId, new Map());
+              }
+              const gameSelections = winnerSelections.get(selection.challengeId);
+              gameSelections.set(selection.playerId, selection.selectedWinner);
+            } else {
+              logger.info(`⏭️ Skipping selection for challenge ${selection.challengeId} with status ${selection.Challenge.status}`);
+            }
+          });
+
+          logger.info(`📤 Sending winner selections to client:`, JSON.stringify(allSelections, null, 2));
+
+          ws.send(
+            JSON.stringify({
+              type: "allWinnerSelections",
+              selections: allSelections,
+            })
+          );
+        } catch (error) {
+          logger.error(`Failed to load winner selections from database: ${error}`);
+          // Fallback to memory cache
+          const allSelections: Record<string, Record<string, string>> = {};
+          winnerSelections.forEach((gameSelections, gameId: string) => {
+            const selectionsObj: Record<string, string> = {};
+            gameSelections.forEach((winner: string, player: string) => {
+              selectionsObj[player] = winner;
+            });
+            allSelections[gameId] = selectionsObj;
+          });
+
+          logger.info(`📤 Sending fallback winner selections to client:`, JSON.stringify(allSelections, null, 2));
+
+          ws.send(
+            JSON.stringify({
+              type: "allWinnerSelections",
+              selections: allSelections,
+            })
+          );
+        }
       }
 
       if (userInfo.type === "createChallenge") {
@@ -644,8 +750,17 @@ wss.on("connection", (ws: WebSocket) => {
           onlineUsers.get(updatedChallenge.creatorId)?.send(message);
           onlineUsers.get(updatedChallenge.inviteeId)?.send(message);
 
-          // Clean up winner selections for this game
+          // Clean up winner selections for this game from both memory and database
           winnerSelections.delete(gameId);
+
+          try {
+            await prisma.winnerSelection.deleteMany({
+              where: { challengeId: gameId }
+            });
+            logger.info(`Cleaned up winner selections for completed challenge ${gameId}`);
+          } catch (error) {
+            logger.error(`Failed to clean up winner selections from database: ${error}`);
+          }
         } catch (error) {
           logger.error(
             `Failed to claim victory for challenge ${gameId}: ${error}`
@@ -682,4 +797,7 @@ wss.on("connection", (ws: WebSocket) => {
   });
 });
 
-// console.log("WebSocket server is running on ws://localhost:8080");
+// Load winner selections from database on server startup
+loadWinnerSelectionsFromDB();
+
+logger.info("WebSocket server is running on ws://localhost:8081");

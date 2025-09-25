@@ -47,6 +47,7 @@ model User {
   comments                            Comment[]
   posts                               Post[]
   chats                               Chat[]                    @relation("UserChats")
+  WinnerSelection                     WinnerSelection[]
 }
 
 model Account {
@@ -119,6 +120,20 @@ model Challenge {
   User_Challenge_inviteeIdToUser User?              @relation("Challenge_inviteeIdToUser", fields: [inviteeId], references: [name])
   Claim                          Claim[]
   FalseClaimReport               FalseClaimReport[]
+  WinnerSelection                WinnerSelection[]
+}
+
+model WinnerSelection {
+  id          String    @id @default(uuid())
+  challengeId String
+  playerId    String
+  selectedWinner String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  Challenge   Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  User        User      @relation(fields: [playerId], references: [name])
+  
+  @@unique([challengeId, playerId]) // Each player can only have one selection per challenge
 }
 
 model Claim {
