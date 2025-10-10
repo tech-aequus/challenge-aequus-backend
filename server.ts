@@ -438,7 +438,13 @@ wss.on("connection", (ws: WebSocket) => {
           // Check if challenge exists and is open
           const challenge = await prisma.challenge.findUnique({
             where: { id: gameId },
-            select: { status: true, isOpen: true, creatorId: true, inviteeId: true },
+            select: {
+              status: true,
+              isOpen: true,
+              creatorId: true,
+              inviteeId: true,
+              coins: true // Include coins amount needed for validation
+            },
           });
 
           if (!challenge) {
@@ -476,6 +482,32 @@ wss.on("connection", (ws: WebSocket) => {
               JSON.stringify({
                 type: "joinOpenChallengeFailed",
                 message: "Challenge already has a participant",
+              })
+            );
+            return;
+          }
+
+          // Check if the user has sufficient coins before allowing them to join
+          const user = await prisma.user.findUnique({
+            where: { name: username },
+            select: { coins: true },
+          });
+
+          if (!user) {
+            ws.send(
+              JSON.stringify({
+                type: "joinOpenChallengeFailed",
+                message: "User not found",
+              })
+            );
+            return;
+          }
+
+          if (user.coins < challenge.coins) {
+            ws.send(
+              JSON.stringify({
+                type: "joinOpenChallengeFailed",
+                message: `Insufficient coins. You need ${challenge.coins} coins but only have ${user.coins}`,
               })
             );
             return;
