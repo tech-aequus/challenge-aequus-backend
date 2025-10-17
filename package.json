@@ -1,5 +1,5 @@
 {
-  "name": "aeq",
+  "name": "challenge-aequus-backend",
   "module": "index.ts",
   "type": "module",
   "devDependencies": {
