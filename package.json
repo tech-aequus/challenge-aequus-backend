@@ -7,8 +7,10 @@
   },
   "scripts": {
     "build": "bun build server.ts --outdir dist",
-    "start": "bun run dist/server.js"
+    "start": "bun run dist/server.js",
+    "dev": "bun run --hot server.ts"
   },
+
   "peerDependencies": {
     "typescript": "^5.0.0"
   },
