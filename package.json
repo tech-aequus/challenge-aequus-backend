@@ -6,11 +6,9 @@
     "@types/bun": "latest"
   },
   "scripts": {
-    "build": "bun build server.ts --outdir dist",
-    "start": "bun run dist/server.js",
-    "dev": "bun run --hot server.ts"
+    "build": "bun build server.ts",
+    "dev": " bun --watch server.ts"
   },
-
   "peerDependencies": {
     "typescript": "^5.0.0"
   },
