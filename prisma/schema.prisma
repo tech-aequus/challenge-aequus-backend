@@ -29,6 +29,12 @@ model User {
   banner                              String                    @default("https://aequus-posts.s3.us-west-2.amazonaws.com/uploads/1741861169744-banner.png")
   bio                                 String                    @default("")
   hasChangedUsername                  Boolean                   @default(false)
+  passwordResetExpiry                 DateTime?
+  passwordResetToken                  String?
+  phoneNumber                         String?
+  phoneVerificationCode               String?
+  phoneVerificationExpiry             DateTime?
+  phoneVerified                       DateTime?
   accounts                            Account[]
   BattleRoyaleParticipant             BattleRoyaleParticipant[]
   Challenge_Challenge_creatorIdToUser Challenge[]               @relation("Challenge_creatorIdToUser")
@@ -37,17 +43,19 @@ model User {
   messages                            ChatMessage[]
   Claim                               Claim[]
   Event                               Event[]
+  Faction                             Faction[]
   FalseClaimReport                    FalseClaimReport[]
   receivedRequests                    FriendRequest[]           @relation("ReceivedRequests")
   sentRequests                        FriendRequest[]           @relation("SentRequests")
   factions                            Member[]
+  MessageReadStatus                   MessageReadStatus[]
   openChallenges                      OpenChallenge[]           @relation("Creator")
   Team                                Team[]
   TeamMember                          TeamMember[]
+  WinnerSelection                     WinnerSelection[]
+  UserChats                           UserChats[]
   comments                            Comment[]
   posts                               Post[]
-  chats                               Chat[]                    @relation("UserChats")
-  WinnerSelection                     WinnerSelection[]
 }
 
 model Account {
@@ -124,16 +132,16 @@ model Challenge {
 }
 
 model WinnerSelection {
-  id          String    @id @default(uuid())
-  challengeId String
-  playerId    String
+  id             String    @id @default(uuid())
+  challengeId    String
+  playerId       String
   selectedWinner String
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  Challenge   Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
-  User        User      @relation(fields: [playerId], references: [name])
-  
-  @@unique([challengeId, playerId]) // Each player can only have one selection per challenge
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  Challenge      Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  User           User      @relation(fields: [playerId], references: [name])
+
+  @@unique([challengeId, playerId])
 }
 
 model Claim {
@@ -190,7 +198,9 @@ model Faction {
   updatedAt   DateTime @updatedAt
   isPrivate   Boolean  @default(false)
   chatId      String?  @unique
+  leaderId    String
   chat        Chat?    @relation(fields: [chatId], references: [id])
+  User        User     @relation(fields: [leaderId], references: [id])
   members     Member[]
 }
 
@@ -263,19 +273,20 @@ model OpenChallenge {
 }
 
 model Chat {
-  id            String        @id @default(uuid())
-  name          String
-  isGroupChat   Boolean       @default(false)
-  lastMessageId String?       @unique
-  adminId       String?
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  factionId     String?       @unique
-  admin         User?         @relation("ChatAdmin", fields: [adminId], references: [id])
-  lastMessage   ChatMessage?  @relation("LastMessage", fields: [lastMessageId], references: [id])
-  messages      ChatMessage[] @relation("AllMessages")
-  faction       Faction?
-  participants  User[]        @relation("UserChats")
+  id                  String        @id @default(uuid())
+  name                String
+  isGroupChat         Boolean       @default(false)
+  lastMessageId       String?       @unique
+  adminId             String?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+  factionId           String?       @unique
+  lastReadMessageData Json?         @default("{}")
+  admin               User?         @relation("ChatAdmin", fields: [adminId], references: [id])
+  lastMessage         ChatMessage?  @relation("LastMessage", fields: [lastMessageId], references: [id])
+  messages            ChatMessage[] @relation("AllMessages")
+  faction             Faction?
+  UserChats           UserChats[]
 }
 
 model ChatMessage {
@@ -289,6 +300,7 @@ model ChatMessage {
   chat              Chat                @relation("AllMessages", fields: [chatId], references: [id])
   sender            User                @relation(fields: [senderId], references: [id])
   attachments       MessageAttachment[]
+  MessageReadStatus MessageReadStatus[]
 }
 
 model MessageAttachment {
@@ -381,6 +393,29 @@ model TeamMember {
   User     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([teamId, userId])
+}
+
+model MessageReadStatus {
+  id          String      @id
+  messageId   String
+  userId      String
+  readAt      DateTime    @default(now())
+  createdAt   DateTime    @default(now())
+  ChatMessage ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  User        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
+}
+
+model UserChats {
+  A    String
+  B    String
+  Chat Chat   @relation(fields: [A], references: [id], onDelete: Cascade)
+  User User   @relation(fields: [B], references: [id], onDelete: Cascade)
+
+  @@id([A, B], map: "_UserChats_AB_pkey")
+  @@index([B], map: "_UserChats_B_index")
+  @@map("_UserChats")
 }
 
 enum ChallengeStatus {

@@ -1,4 +1,0 @@
--- AlterTable
-ALTER TABLE "User" ADD COLUMN     "multiplier" DOUBLE PRECISION NOT NULL DEFAULT 1,
-ADD COLUMN     "multiplierExpiresAt" TIMESTAMP(3),
-ADD COLUMN     "xp" INTEGER NOT NULL DEFAULT 0;
