@@ -38,6 +38,23 @@ async function loadWinnerSelectionsFromDB() {
   }
 }
 
+// Helper function to enrich challenge data with winner selections
+function enrichChallengeWithSelections(challenge: any) {
+  const selections = winnerSelections.get(challenge.id);
+  const selectionsObj: Record<string, string> = {};
+
+  if (selections) {
+    selections.forEach((winner: string, player: string) => {
+      selectionsObj[player] = winner;
+    });
+  }
+
+  return {
+    ...challenge,
+    winnerSelections: selectionsObj,
+  };
+}
+
 function broadcastOnlineUsers() {
   const onlineUsernames = Array.from(onlineUsers.keys());
   const message = JSON.stringify({
@@ -101,9 +118,11 @@ function broadcastChallengeUpdate(updatedChallenge: {
     .map((username) => onlineUsers.get(username))
     .filter((ws) => ws);
 
+  const enrichedChallenge = enrichChallengeWithSelections(updatedChallenge);
+
   const message = JSON.stringify({
     type: "challengeAccepted",
-    updatedChallenge,
+    updatedChallenge: enrichedChallenge,
   });
   usersInChallenge.forEach((ws) => {
     if (ws?.readyState === WebSocket.OPEN) {
@@ -137,9 +156,12 @@ function broadcastGameStateUpdate(
     .filter(Boolean)
     .map((username) => onlineUsers.get(username))
     .filter((ws) => ws);
+
+  const enrichedState = enrichChallengeWithSelections(updateState);
+
   const message = JSON.stringify({
     type: `challengeStartedBy`,
-    updateState,
+    updateState: enrichedState,
   });
   usersInChallenge.forEach((ws) => {
     if (ws?.readyState === WebSocket.OPEN) {
@@ -269,27 +291,42 @@ wss.on("connection", (ws: WebSocket) => {
           const gameSelections = winnerSelections.get(gameId);
           gameSelections.set(playerId, selectedWinner);
 
-          // Convert Map to object for JSON serialization
-          const selectionsObj: Record<string, string> = {};
-          gameSelections.forEach((winner: string, player: string) => {
-            selectionsObj[player] = winner;
+          // Fetch the full challenge data
+          const challenge = await prisma.challenge.findUnique({
+            where: { id: gameId }
           });
+
+          if (!challenge) {
+            logger.error(`Challenge not found: ${gameId}`);
+            return;
+          }
+
+          // Enrich challenge with winner selections
+          const enrichedChallenge = enrichChallengeWithSelections(challenge);
 
           logger.info(
-            `Current selections for game ${gameId}:`,
-            JSON.stringify(selectionsObj)
+            `Broadcasting updated challenge with selections for ${gameId}:`,
+            JSON.stringify(enrichedChallenge.winnerSelections)
           );
 
-          // Broadcast the updated selections to both players
-          broadcastToChallengePlayers(gameId, {
-            type: "winnerSelectionUpdate",
-            gameId,
-            playerId,
-            selectedWinner,
-            allSelections: selectionsObj,
+          // Broadcast the full challenge update to both players
+          const usersInChallenge = [challenge.creatorId, challenge.inviteeId]
+            .filter(Boolean)
+            .map((username) => onlineUsers.get(username))
+            .filter((ws) => ws);
+
+          const message = JSON.stringify({
+            type: "challengeUpdate",
+            challenge: enrichedChallenge,
           });
 
-          logger.info(`Winner selection saved to DB and broadcasted for game ${gameId}`);
+          usersInChallenge.forEach((ws) => {
+            if (ws?.readyState === WebSocket.OPEN) {
+              ws.send(message);
+            }
+          });
+
+          logger.info(`Winner selection saved and challenge update broadcasted for ${gameId}`);
         } catch (error) {
           logger.error(`Failed to save winner selection to database: ${error}`);
           ws.send(
