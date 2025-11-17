@@ -130,6 +130,14 @@ model Challenge {
   Claim                          Claim[]
   FalseClaimReport               FalseClaimReport[]
   WinnerSelection                WinnerSelection[]
+
+  @@index([creatorId])
+  @@index([expiresAt])
+  @@index([inviteeId])
+  @@index([isOpen, status])
+  @@index([status, creatorId])
+  @@index([status])
+  @@index([status, inviteeId])
 }
 
 model WinnerSelection {
@@ -140,9 +148,11 @@ model WinnerSelection {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   Challenge      Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
-  User           User      @relation(fields: [playerId], references: [name])
+  User           User      @relation(fields: [playerId], references: [id], onDelete: Cascade)
 
   @@unique([challengeId, playerId])
+  @@index([challengeId])
+  @@index([playerId])
 }
 
 model Claim {
@@ -150,8 +160,11 @@ model Claim {
   challengeId String
   claimantId  String
   claimedAt   DateTime  @default(now())
-  Challenge   Challenge @relation(fields: [challengeId], references: [id])
-  User        User      @relation(fields: [claimantId], references: [name])
+  Challenge   Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  User        User      @relation(fields: [claimantId], references: [id], onDelete: Cascade)
+
+  @@index([challengeId])
+  @@index([claimantId])
 }
 
 model Event {
