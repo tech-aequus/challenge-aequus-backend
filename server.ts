@@ -616,6 +616,24 @@ async function handleCreateChallenge(userInfo: MessagePayload): Promise<void> {
         isOpen,
         expiresAt: new Date(Date.now() + CONFIG.CHALLENGE_EXPIRY_MS),
       },
+      include: {
+        User_Challenge_creatorIdToUser: {
+          select: {
+            id: true,
+            name: true,
+            image: true,
+          },
+        },
+        User_Challenge_inviteeIdToUser: targetInvitee
+          ? {
+              select: {
+                id: true,
+                name: true,
+                image: true,
+              },
+            }
+          : false,
+      },
     });
 
     // Broadcast based on challenge type
