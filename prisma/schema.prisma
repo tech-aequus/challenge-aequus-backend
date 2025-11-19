@@ -8,48 +8,49 @@ datasource db {
 }
 
 model User {
-  id                                  String                    @id @default(uuid())
-  email                               String                    @unique
-  createdAt                           DateTime                  @default(now())
-  updatedAt                           DateTime                  @updatedAt
+  id                                  String                 @id @default(uuid())
+  email                               String                 @unique
+  createdAt                           DateTime               @default(now())
+  updatedAt                           DateTime               @updatedAt
   generatedPassword                   String?
   emailVerified                       DateTime?
   image                               String?
-  role                                String                    @default("user")
+  role                                String                 @default("user")
   password                            String?
-  name                                String                    @unique
-  coins                               Int                       @default(0)
-  isVerified                          Boolean                   @default(false)
-  isAdmin                             Boolean                   @default(false)
-  multiplier                          Float                     @default(1)
+  name                                String                 @unique
+  coins                               Int                    @default(0)
+  isVerified                          Boolean                @default(false)
+  isAdmin                             Boolean                @default(false)
+  multiplier                          Float                  @default(1)
   multiplierExpiresAt                 DateTime?
-  xp                                  Int                       @default(0)
-  purchasedItems                      String[]                  @default([])
-  achievements                        String[]                  @default([])
-  banner                              String                    @default("https://aequus-posts.s3.us-west-2.amazonaws.com/uploads/1741861169744-banner.png")
-  bio                                 String                    @default("")
-  hasChangedUsername                  Boolean                   @default(false)
+  xp                                  Int                    @default(0)
+  purchasedItems                      String[]               @default([])
+  achievements                        String[]               @default([])
+  banner                              String                 @default("https://aequus-posts.s3.us-west-2.amazonaws.com/uploads/1741861169744-banner.png")
+  bio                                 String                 @default("")
+  hasChangedUsername                  Boolean                @default(false)
   passwordResetExpiry                 DateTime?
   passwordResetToken                  String?
   phoneNumber                         String?
   phoneVerificationCode               String?
   phoneVerificationExpiry             DateTime?
   phoneVerified                       DateTime?
+  isTermsAgreed                       Boolean                @default(false)
   accounts                            Account[]
-  BattleRoyaleParticipant             BattleRoyaleParticipant[]
-  Challenge_Challenge_creatorIdToUser Challenge[]               @relation("Challenge_creatorIdToUser")
-  Challenge_Challenge_inviteeIdToUser Challenge[]               @relation("Challenge_inviteeIdToUser")
-  adminOf                             Chat[]                    @relation("ChatAdmin")
+  Challenge_Challenge_creatorIdToUser Challenge[]            @relation("Challenge_creatorIdToUser")
+  Challenge_Challenge_inviteeIdToUser Challenge[]            @relation("Challenge_inviteeIdToUser")
+  adminOf                             Chat[]                 @relation("ChatAdmin")
   messages                            ChatMessage[]
   Claim                               Claim[]
   Event                               Event[]
   Faction                             Faction[]
   FalseClaimReport                    FalseClaimReport[]
-  receivedRequests                    FriendRequest[]           @relation("ReceivedRequests")
-  sentRequests                        FriendRequest[]           @relation("SentRequests")
+  receivedRequests                    FriendRequest[]        @relation("ReceivedRequests")
+  sentRequests                        FriendRequest[]        @relation("SentRequests")
   factions                            Member[]
   MessageReadStatus                   MessageReadStatus[]
-  openChallenges                      OpenChallenge[]           @relation("Creator")
+  openChallenges                      OpenChallenge[]        @relation("Creator")
+  SoloEventParticipant                SoloEventParticipant[]
   Team                                Team[]
   TeamMember                          TeamMember[]
   WinnerSelection                     WinnerSelection[]
@@ -124,11 +125,19 @@ model Challenge {
   winnerId                       String?
   xp                             Int                @default(0)
   isOpen                         Boolean            @default(false)
-  User_Challenge_creatorIdToUser User               @relation("Challenge_creatorIdToUser", fields: [creatorId], references: [name])
-  User_Challenge_inviteeIdToUser User?              @relation("Challenge_inviteeIdToUser", fields: [inviteeId], references: [name])
+  User_Challenge_creatorIdToUser User               @relation("Challenge_creatorIdToUser", fields: [creatorId], references: [id])
+  User_Challenge_inviteeIdToUser User?              @relation("Challenge_inviteeIdToUser", fields: [inviteeId], references: [id])
   Claim                          Claim[]
   FalseClaimReport               FalseClaimReport[]
   WinnerSelection                WinnerSelection[]
+
+  @@index([creatorId])
+  @@index([expiresAt])
+  @@index([inviteeId])
+  @@index([isOpen, status])
+  @@index([status, creatorId])
+  @@index([status])
+  @@index([status, inviteeId])
 }
 
 model WinnerSelection {
@@ -139,9 +148,11 @@ model WinnerSelection {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   Challenge      Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
-  User           User      @relation(fields: [playerId], references: [name])
+  User           User      @relation(fields: [playerId], references: [id], onDelete: Cascade)
 
   @@unique([challengeId, playerId])
+  @@index([challengeId])
+  @@index([playerId])
 }
 
 model Claim {
@@ -149,44 +160,48 @@ model Claim {
   challengeId String
   claimantId  String
   claimedAt   DateTime  @default(now())
-  Challenge   Challenge @relation(fields: [challengeId], references: [id])
-  User        User      @relation(fields: [claimantId], references: [name])
+  Challenge   Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  User        User      @relation(fields: [claimantId], references: [id], onDelete: Cascade)
+
+  @@index([challengeId])
+  @@index([claimantId])
 }
 
 model Event {
-  prizePool               Float?
-  authorId                String
-  createdAt               DateTime                  @default(now())
-  discordCommunityLink    String?
-  eventPoster             String?
-  game                    String
-  liveStreamLinks         String?
-  maxParticipantAllowed   Int?
-  name                    String
-  registerAmount          Float?
-  registerBefore          DateTime
-  updatedAt               DateTime                  @default(now())
-  usersRegistered         String[]
-  id                      String                    @id
-  endDate                 DateTime
-  minParticipantRequired  Int?
-  startDate               DateTime
-  status                  EventStatus?              @default(UPCOMING)
-  description             String
-  gameType                GameType                  @default(TEAM)
-  maxTeamsAllowed         Int?
-  minTeamsRequired        Int?
-  platform                Platform
-  teamSize                Int?
-  winnerId                String?
-  isCoinsDispursed        Boolean                   @default(false)
-  disputeReason           String?
-  isCoinsRefunded         Boolean                   @default(false)
-  isAuthorPaid            Boolean                   @default(false)
-  BattleRoyaleParticipant BattleRoyaleParticipant[]
-  author                  User                      @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  Match                   Match[]
-  Team                    Team[]
+  prizePool              Float?
+  authorId               String
+  createdAt              DateTime               @default(now())
+  discordCommunityLink   String?
+  eventPoster            String?
+  game                   String
+  liveStreamLinks        String?
+  maxParticipantAllowed  Int?
+  name                   String
+  registerAmount         Float?
+  registerBefore         DateTime
+  updatedAt              DateTime               @default(now())
+  usersRegistered        String[]
+  id                     String                 @id
+  endDate                DateTime
+  minParticipantRequired Int?
+  startDate              DateTime
+  status                 EventStatus?           @default(UPCOMING)
+  description            String
+  eventType              EventType              @default(TOURNAMENT)
+  maxTeamsAllowed        Int?
+  minTeamsRequired       Int?
+  platform               Platform
+  teamSize               Int?
+  winnerId               String?
+  isCoinsDispursed       Boolean                @default(false)
+  disputeReason          String?
+  isCoinsRefunded        Boolean                @default(false)
+  isAuthorPaid           Boolean                @default(false)
+  gameType               GameType               @default(TEAM)
+  author                 User                   @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  Match                  Match[]
+  SoloEventParticipant   SoloEventParticipant[]
+  Team                   Team[]
 }
 
 model Faction {
@@ -317,17 +332,21 @@ model AppSettings {
   updatedAt DateTime
 }
 
-model BattleRoyaleParticipant {
-  id           String    @id
-  eventId      String
-  userId       String
-  score        Int       @default(0)
-  placement    Int?
-  eliminatedAt DateTime?
-  proofUrl     String?
-  createdAt    DateTime  @default(now())
-  Event        Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  User         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+model SoloEventParticipant {
+  id                                                    String    @id
+  eventId                                               String
+  userId                                                String
+  score                                                 Int       @default(0)
+  placement                                             Int?
+  eliminatedAt                                          DateTime?
+  proofUrl                                              String?
+  createdAt                                             DateTime  @default(now())
+  gameId                                                String?
+  Match_Match_participantAIdToSoloEventParticipant      Match[]   @relation("Match_participantAIdToSoloEventParticipant")
+  Match_Match_participantBIdToSoloEventParticipant      Match[]   @relation("Match_participantBIdToSoloEventParticipant")
+  Match_Match_winnerParticipantIdToSoloEventParticipant Match[]   @relation("Match_winnerParticipantIdToSoloEventParticipant")
+  Event                                                 Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  User                                                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([eventId, userId])
 }
@@ -344,25 +363,31 @@ model FalseClaimReport {
 }
 
 model Match {
-  id                        String      @id
-  eventId                   String
-  teamAId                   String?
-  teamBId                   String?
-  startTime                 DateTime?
-  status                    MatchStatus @default(SCHEDULED)
-  winnerId                  String?
-  proofAUrl                 String?
-  proofBUrl                 String?
-  createdAt                 DateTime    @default(now())
-  updatedAt                 DateTime
-  nextMatchId               String?
-  roundNumber               Int         @default(1)
-  Event                     Event       @relation(fields: [eventId], references: [id])
-  Match                     Match?      @relation("MatchToMatch", fields: [nextMatchId], references: [id])
-  other_Match               Match[]     @relation("MatchToMatch")
-  Team_Match_teamAIdToTeam  Team?       @relation("Match_teamAIdToTeam", fields: [teamAId], references: [id])
-  Team_Match_teamBIdToTeam  Team?       @relation("Match_teamBIdToTeam", fields: [teamBId], references: [id])
-  Team_Match_winnerIdToTeam Team?       @relation("Match_winnerIdToTeam", fields: [winnerId], references: [id])
+  id                                                                   String                @id
+  eventId                                                              String
+  teamAId                                                              String?
+  teamBId                                                              String?
+  startTime                                                            DateTime?
+  status                                                               MatchStatus           @default(SCHEDULED)
+  winnerId                                                             String?
+  proofAUrl                                                            String?
+  proofBUrl                                                            String?
+  createdAt                                                            DateTime              @default(now())
+  updatedAt                                                            DateTime
+  nextMatchId                                                          String?
+  roundNumber                                                          Int                   @default(1)
+  participantAId                                                       String?
+  participantBId                                                       String?
+  winnerParticipantId                                                  String?
+  Event                                                                Event                 @relation(fields: [eventId], references: [id])
+  Match                                                                Match?                @relation("MatchToMatch", fields: [nextMatchId], references: [id])
+  other_Match                                                          Match[]               @relation("MatchToMatch")
+  SoloEventParticipant_Match_participantAIdToSoloEventParticipant      SoloEventParticipant? @relation("Match_participantAIdToSoloEventParticipant", fields: [participantAId], references: [id])
+  SoloEventParticipant_Match_participantBIdToSoloEventParticipant      SoloEventParticipant? @relation("Match_participantBIdToSoloEventParticipant", fields: [participantBId], references: [id])
+  Team_Match_teamAIdToTeam                                             Team?                 @relation("Match_teamAIdToTeam", fields: [teamAId], references: [id])
+  Team_Match_teamBIdToTeam                                             Team?                 @relation("Match_teamBIdToTeam", fields: [teamBId], references: [id])
+  Team_Match_winnerIdToTeam                                            Team?                 @relation("Match_winnerIdToTeam", fields: [winnerId], references: [id])
+  SoloEventParticipant_Match_winnerParticipantIdToSoloEventParticipant SoloEventParticipant? @relation("Match_winnerParticipantIdToSoloEventParticipant", fields: [winnerParticipantId], references: [id])
 }
 
 model Team {
@@ -374,6 +399,8 @@ model Team {
   updatedAt                  DateTime
   creatorId                  String
   status                     TeamStatus   @default(ACTIVE)
+  teamGameId                 String?
+  proofUrl                   String?
   Match_Match_teamAIdToTeam  Match[]      @relation("Match_teamAIdToTeam")
   Match_Match_teamBIdToTeam  Match[]      @relation("Match_teamBIdToTeam")
   Match_Match_winnerIdToTeam Match[]      @relation("Match_winnerIdToTeam")
@@ -389,6 +416,7 @@ model TeamMember {
   teamId   String
   userId   String
   joinedAt DateTime @default(now())
+  gameId   String?
   Team     Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
   User     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -444,8 +472,8 @@ enum EventStatus {
   CANCELLED
 }
 
-enum GameType {
-  TEAM
+enum EventType {
+  TOURNAMENT
   BATTLE_ROYALE
 }
 
@@ -467,4 +495,9 @@ enum Platform {
 enum TeamStatus {
   ACTIVE
   ELIMINATED
+}
+
+enum GameType {
+  SOLO
+  TEAM
 }
