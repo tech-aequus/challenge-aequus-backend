@@ -603,6 +603,7 @@ async function handleCreateChallenge(userInfo: MessagePayload): Promise<void> {
   const challengeStatus: $Enums.ChallengeStatus = "PENDING";
 
   try {
+    // Create challenge without includes first
     const newChallenge = await prisma.challenge.create({
       data: {
         game,
@@ -616,31 +617,34 @@ async function handleCreateChallenge(userInfo: MessagePayload): Promise<void> {
         isOpen,
         expiresAt: new Date(Date.now() + CONFIG.CHALLENGE_EXPIRY_MS),
       },
-      include: {
-        User_Challenge_creatorIdToUser: {
-          select: {
-            id: true,
-            name: true,
-            image: true,
-          },
-        },
-        User_Challenge_inviteeIdToUser: targetInvitee
-          ? {
-              select: {
-                id: true,
-                name: true,
-                image: true,
-              },
-            }
-          : false,
-      },
     });
+
+    // Fetch creator and invitee user data separately
+    const [creator, invitee] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: creatorId },
+        select: { id: true, name: true, image: true },
+      }),
+      targetInvitee
+        ? prisma.user.findUnique({
+            where: { id: targetInvitee },
+            select: { id: true, name: true, image: true },
+          })
+        : Promise.resolve(null),
+    ]);
+
+    // Attach user data to challenge object
+    const enrichedChallenge = {
+      ...newChallenge,
+      User_Challenge_creatorIdToUser: creator,
+      User_Challenge_inviteeIdToUser: invitee,
+    };
 
     // Broadcast based on challenge type
     if (isOpen) {
-      broadcastOpenChallenge(newChallenge);
+      broadcastOpenChallenge(enrichedChallenge);
     } else {
-      broadcastNewChallenge(newChallenge);
+      broadcastNewChallenge(enrichedChallenge);
     }
   } catch (error) {
     logger.error("Failed to create challenge:", {
