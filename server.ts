@@ -803,6 +803,12 @@ async function handleStartChallenge(
       return;
     }
 
+    // Only allow invitee to start
+    if (userId !== challenge.inviteeId) {
+      sendError("Only the invited player can start the challenge");
+      return;
+    }
+
     // Check if both users are online
     const bothOnline =
       state.isUserOnline(challenge.creatorId) &&
@@ -814,61 +820,17 @@ async function handleStartChallenge(
       return;
     }
 
-    const currentStatus = challenge.status;
-    const isCreator = userId === challenge.creatorId;
-    const isInvitee = userId === challenge.inviteeId;
-
-    // Get or initialize challenge state
-    let challengeState = state.getChallengeState(gameId);
-    if (!challengeState) {
-      challengeState = state.initializeChallengeState(gameId);
-    }
-
-    if (currentStatus === "STARTING") {
-      // Check if user already started
-      if (
-        (isCreator && challengeState.creatorStarted) ||
-        (isInvitee && challengeState.opponentStarted)
-      ) {
-        sendError("You already started the challenge");
-        return;
-      }
-
-      // Mark as started
-      if (isCreator) {
-        challengeState.creatorStarted = true;
-      } else if (isInvitee) {
-        challengeState.opponentStarted = true;
-      }
-
-      // Check if both started
-      if (challengeState.creatorStarted && challengeState.opponentStarted) {
-        const updatedChallenge = await prisma.challenge.update({
-          where: { id: gameId },
-          data: { status: "IN_PROGRESS" },
-        });
-
-        broadcastGameStateUpdate(updatedChallenge);
-        state.deleteChallengeState(gameId);
-      } else {
-        broadcastGameStateUpdate(challenge);
-      }
-    } else if (currentStatus === "ACCEPTED") {
+    if (challenge.status === "ACCEPTED") {
+      // Directly start the game - no confirmation needed
       const updatedChallenge = await prisma.challenge.update({
         where: { id: gameId },
-        data: { status: "STARTING" },
+        data: { status: "IN_PROGRESS" },
       });
 
-      // Mark starter
-      if (isCreator) {
-        challengeState.creatorStarted = true;
-      } else if (isInvitee) {
-        challengeState.opponentStarted = true;
-      }
-
       broadcastGameStateUpdate(updatedChallenge);
+      state.deleteChallengeState(gameId);
     } else {
-      sendError("Challenge already ongoing or completed");
+      sendError("Challenge cannot be started from current status");
     }
   } catch (error) {
     logger.error("Failed to start challenge:", {
