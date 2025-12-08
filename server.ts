@@ -239,6 +239,7 @@ function broadcastToChallengePlayers(
 
   players.forEach((playerId) => {
     const playerData = state.getUserData(playerId);
+
     if (playerData?.ws.readyState === WebSocket.OPEN) {
       try {
         playerData.ws.send(messageStr);
@@ -247,9 +248,7 @@ function broadcastToChallengePlayers(
       }
     }
   });
-}
-
-// Type for Challenge Data
+} // Type for Challenge Data
 type ChallengeData = {
   id: string;
   creatorId: string;
@@ -273,7 +272,7 @@ function broadcastChallengeUpdate(updatedChallenge: ChallengeData): void {
   const enrichedChallenge = enrichChallengeWithSelections(updatedChallenge);
   const message: MessagePayload = {
     type: "challengeAccepted",
-    updatedChallenge: enrichedChallenge,
+    challenge: enrichedChallenge,
   };
 
   broadcastToChallengePlayers(
@@ -300,7 +299,7 @@ function broadcastGameStateUpdate(updateState: ChallengeData): void {
 function broadcastNewChallenge(newChallenge: ChallengeData): void {
   const message: MessagePayload = {
     type: "challengeCreated",
-    newChallenge,
+    challenge: newChallenge,
   };
 
   broadcastToChallengePlayers(
@@ -351,8 +350,8 @@ wss.on("connection", (ws: WebSocket) => {
         case "getWinnerSelections":
           await handleGetWinnerSelections(ws, userInfo);
           break;
-        case "createChallenge":
-          await handleCreateChallenge(userInfo);
+        case "broadcastChallenge":
+          await handleBroadcastChallenge(userInfo);
           break;
         case "acceptChallenge":
           await handleAcceptChallenge(userInfo);
@@ -427,14 +426,14 @@ async function handleSelectWinner(
   ws: WebSocket,
   userInfo: MessagePayload
 ): Promise<void> {
-  const { gameId, playerId, selectedWinner } = userInfo;
+  const { challengeId, playerId, winnerId } = userInfo;
 
   // Validation
-  if (!gameId || !playerId || !selectedWinner) {
+  if (!challengeId || !playerId || !winnerId) {
     logger.warn("selectWinner called with missing parameters", {
-      gameId,
+      challengeId,
       playerId,
-      selectedWinner,
+      winnerId,
     });
     return;
   }
@@ -446,31 +445,31 @@ async function handleSelectWinner(
       const selection = await tx.winnerSelection.upsert({
         where: {
           challengeId_playerId: {
-            challengeId: gameId,
+            challengeId: challengeId,
             playerId: playerId,
           },
         },
         create: {
-          challengeId: gameId,
+          challengeId: challengeId,
           playerId: playerId,
-          selectedWinner: selectedWinner,
+          selectedWinner: winnerId,
         },
         update: {
-          selectedWinner: selectedWinner,
+          selectedWinner: winnerId,
           updatedAt: new Date(),
         },
       });
 
       // Fetch challenge data
       const challengeData = await tx.challenge.findUnique({
-        where: { id: gameId },
+        where: { id: challengeId },
       });
 
       return [selection, challengeData];
     });
 
     if (!challenge) {
-      logger.error(`Challenge not found: ${gameId}`);
+      logger.error(`Challenge not found: ${challengeId}`);
       ws.send(
         JSON.stringify({
           type: "error",
@@ -481,7 +480,7 @@ async function handleSelectWinner(
     }
 
     // Update in-memory cache
-    state.setWinnerSelection(gameId, playerId, selectedWinner);
+    state.setWinnerSelection(challengeId, playerId, winnerId);
 
     // Enrich and broadcast
     const enrichedChallenge = enrichChallengeWithSelections(challenge);
@@ -493,7 +492,7 @@ async function handleSelectWinner(
   } catch (error) {
     logger.error(`Failed to save winner selection:`, {
       error: error instanceof Error ? error.message : String(error),
-      gameId,
+      challengeId,
       playerId,
     });
 
@@ -581,100 +580,69 @@ async function handleGetWinnerSelections(
   }
 }
 
-async function handleCreateChallenge(userInfo: MessagePayload): Promise<void> {
-  const {
-    creatorId,
-    coins,
-    xp,
-    inviteeId,
-    game,
-    description,
-    rules,
-    isOpen = false,
-  } = userInfo;
+/**
+ * Handle broadcasting an already-created challenge from the database
+ * This is called after a server action creates the challenge
+ */
+async function handleBroadcastChallenge(
+  userInfo: MessagePayload
+): Promise<void> {
+  const { challenge } = userInfo;
 
-  // Validation
-  if (!creatorId || !game || coins === undefined) {
-    logger.warn("createChallenge called with missing parameters");
+  if (!challenge || !challenge.id) {
+    logger.warn("broadcastChallenge called without valid challenge");
     return;
   }
 
-  const targetInvitee = isOpen ? null : inviteeId || null;
-  const challengeStatus: $Enums.ChallengeStatus = "PENDING";
-
-  try {
-    // Create challenge without includes first
-    const newChallenge = await prisma.challenge.create({
-      data: {
-        game,
-        creatorId,
-        inviteeId: targetInvitee,
-        coins,
-        xp: xp || 0,
-        status: challengeStatus,
-        description: description || null,
-        rules: rules || { timeLimit: "30 minutes", maxMoves: 100 },
-        isOpen,
-        expiresAt: new Date(Date.now() + CONFIG.CHALLENGE_EXPIRY_MS),
-      },
-    });
-
-    // Fetch creator and invitee user data separately
-    const [creator, invitee] = await Promise.all([
-      prisma.user.findUnique({
-        where: { id: creatorId },
-        select: { id: true, name: true, image: true },
-      }),
-      targetInvitee
-        ? prisma.user.findUnique({
-            where: { id: targetInvitee },
-            select: { id: true, name: true, image: true },
-          })
-        : Promise.resolve(null),
-    ]);
-
-    // Attach user data to challenge object
-    const enrichedChallenge = {
-      ...newChallenge,
-      User_Challenge_creatorIdToUser: creator,
-      User_Challenge_inviteeIdToUser: invitee,
-    };
-
-    // Broadcast based on challenge type
-    if (isOpen) {
-      broadcastOpenChallenge(enrichedChallenge);
-    } else {
-      broadcastNewChallenge(enrichedChallenge);
-    }
-  } catch (error) {
-    logger.error("Failed to create challenge:", {
-      error: error instanceof Error ? error.message : String(error),
-      creatorId,
-      game,
-    });
+  // Broadcast based on challenge type
+  if (challenge.isOpen) {
+    broadcastOpenChallenge(challenge);
+  } else {
+    broadcastNewChallenge(challenge);
   }
 }
 
 async function handleAcceptChallenge(userInfo: MessagePayload): Promise<void> {
-  const { gameId } = userInfo;
+  const { challengeId } = userInfo;
 
-  if (!gameId) {
-    logger.warn("acceptChallenge called without gameId");
+  if (!challengeId) {
+    logger.warn("acceptChallenge called without challengeId");
     return;
   }
 
   try {
     const updatedChallenge = await prisma.challenge.update({
-      where: { id: gameId },
+      where: { id: challengeId },
       data: {
         status: "ACCEPTED",
         acceptedAt: new Date(),
       },
     });
 
-    broadcastChallengeUpdate(updatedChallenge);
+    // Fetch users separately to avoid null constraint errors
+    const [creator, invitee] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: updatedChallenge.creatorId },
+        select: { id: true, name: true, image: true },
+      }),
+      updatedChallenge.inviteeId
+        ? prisma.user.findUnique({
+            where: { id: updatedChallenge.inviteeId },
+            select: { id: true, name: true, image: true },
+          })
+        : Promise.resolve(null),
+    ]);
+
+    // Enrich challenge with user data
+    const enrichedChallenge = {
+      ...updatedChallenge,
+      User_Challenge_creatorIdToUser: creator,
+      User_Challenge_inviteeIdToUser: invitee,
+    };
+
+    broadcastChallengeUpdate(enrichedChallenge as any);
   } catch (error) {
-    logger.error(`Failed to accept challenge ${gameId}:`, {
+    logger.error(`Failed to accept challenge ${challengeId}:`, {
       error: error instanceof Error ? error.message : String(error),
     });
   }
@@ -684,9 +652,9 @@ async function handleJoinOpenChallenge(
   ws: WebSocket,
   userInfo: MessagePayload
 ): Promise<void> {
-  const { gameId, username, userId } = userInfo;
+  const { challengeId, userId } = userInfo;
 
-  if (!gameId || !userId) {
+  if (!challengeId || !userId) {
     logger.warn("joinOpenChallenge called with missing parameters");
     return;
   }
@@ -700,46 +668,85 @@ async function handleJoinOpenChallenge(
   };
 
   try {
-    // Single query to get all needed data
-    const [challenge, user] = await Promise.all([
-      prisma.challenge.findUnique({
-        where: { id: gameId },
-        select: {
-          status: true,
-          isOpen: true,
-          creatorId: true,
-          inviteeId: true,
-          coins: true,
-        },
-      }),
-      prisma.user.findUnique({
-        where: { id: userId },
-        select: { coins: true, name: true },
-      }),
-    ]);
+    // Get current challenge state
+    const challenge = await prisma.challenge.findUnique({
+      where: { id: challengeId },
+      select: {
+        status: true,
+        isOpen: true,
+        creatorId: true,
+        inviteeId: true,
+        coins: true,
+      },
+    });
 
-    // Validate challenge
+    // Validate challenge exists
     if (!challenge) {
       sendError("Challenge not found");
       return;
     }
 
-    if (!challenge.isOpen || challenge.status !== "PENDING") {
-      sendError("Challenge is not available for joining");
-      return;
-    }
-
+    // Check if user is the creator
     if (challenge.creatorId === userId) {
       sendError("You cannot join your own challenge");
       return;
     }
 
-    if (challenge.inviteeId) {
+    // If user is already the invitee (joined via server action), ensure status is ACCEPTED and broadcast
+    if (challenge.inviteeId === userId) {
+      logger.info(
+        `User ${userId} already joined challenge ${challengeId}, ensuring ACCEPTED status and broadcasting`
+      );
+
+      // Update challenge to ACCEPTED status if not already
+      const updatedChallenge = await prisma.challenge.update({
+        where: { id: challengeId },
+        data: {
+          status: "ACCEPTED",
+          acceptedAt: new Date(),
+        },
+      });
+
+      // Fetch users separately
+      const [creator, invitee] = await Promise.all([
+        prisma.user.findUnique({
+          where: { id: updatedChallenge.creatorId },
+          select: { id: true, name: true, image: true },
+        }),
+        prisma.user.findUnique({
+          where: { id: userId },
+          select: { id: true, name: true, image: true },
+        }),
+      ]);
+
+      const enrichedChallenge = {
+        ...updatedChallenge,
+        User_Challenge_creatorIdToUser: creator,
+        User_Challenge_inviteeIdToUser: invitee,
+      };
+
+      broadcastChallengeUpdate(enrichedChallenge as any);
+      return;
+    }
+
+    // If challenge has a different invitee, reject
+    if (challenge.inviteeId && challenge.inviteeId !== userId) {
       sendError("Challenge already has a participant");
       return;
     }
 
-    // Validate user
+    // Check if challenge is available for joining
+    if (challenge.status !== "PENDING") {
+      sendError("Challenge is not available for joining");
+      return;
+    }
+
+    // Validate user exists and has enough coins
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { coins: true, name: true },
+    });
+
     if (!user) {
       sendError("User not found");
       return;
@@ -752,22 +759,39 @@ async function handleJoinOpenChallenge(
       return;
     }
 
-    // Update challenge
+    // Update challenge - set inviteeId and accept it
     const updatedChallenge = await prisma.challenge.update({
-      where: { id: gameId },
+      where: { id: challengeId },
       data: {
         inviteeId: userId,
         status: "ACCEPTED",
         acceptedAt: new Date(),
-        isOpen: false,
       },
     });
 
-    broadcastChallengeUpdate(updatedChallenge);
+    // Fetch users separately
+    const [creator, invitee] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: updatedChallenge.creatorId },
+        select: { id: true, name: true, image: true },
+      }),
+      prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, name: true, image: true },
+      }),
+    ]);
+
+    const enrichedChallenge = {
+      ...updatedChallenge,
+      User_Challenge_creatorIdToUser: creator,
+      User_Challenge_inviteeIdToUser: invitee,
+    };
+
+    broadcastChallengeUpdate(enrichedChallenge as any);
   } catch (error) {
     logger.error(`Failed to join open challenge:`, {
       error: error instanceof Error ? error.message : String(error),
-      gameId,
+      challengeId,
       userId,
     });
     sendError("Failed to join challenge");
@@ -778,9 +802,9 @@ async function handleStartChallenge(
   ws: WebSocket,
   userInfo: MessagePayload
 ): Promise<void> {
-  const { gameId, userId } = userInfo;
+  const { challengeId, userId } = userInfo;
 
-  if (!gameId || !userId) {
+  if (!challengeId || !userId) {
     logger.warn("startChallenge called with missing parameters");
     return;
   }
@@ -795,7 +819,7 @@ async function handleStartChallenge(
 
   try {
     const challenge = await prisma.challenge.findUnique({
-      where: { id: gameId },
+      where: { id: challengeId },
     });
 
     if (!challenge) {
@@ -823,19 +847,39 @@ async function handleStartChallenge(
     if (challenge.status === "ACCEPTED") {
       // Directly start the game - no confirmation needed
       const updatedChallenge = await prisma.challenge.update({
-        where: { id: gameId },
+        where: { id: challengeId },
         data: { status: "IN_PROGRESS" },
       });
 
-      broadcastGameStateUpdate(updatedChallenge);
-      state.deleteChallengeState(gameId);
+      // Fetch users separately
+      const [creator, invitee] = await Promise.all([
+        prisma.user.findUnique({
+          where: { id: updatedChallenge.creatorId },
+          select: { id: true, name: true, image: true },
+        }),
+        updatedChallenge.inviteeId
+          ? prisma.user.findUnique({
+              where: { id: updatedChallenge.inviteeId },
+              select: { id: true, name: true, image: true },
+            })
+          : Promise.resolve(null),
+      ]);
+
+      const enrichedChallenge = {
+        ...updatedChallenge,
+        User_Challenge_creatorIdToUser: creator,
+        User_Challenge_inviteeIdToUser: invitee,
+      };
+
+      broadcastGameStateUpdate(enrichedChallenge as any);
+      state.deleteChallengeState(challengeId);
     } else {
       sendError("Challenge cannot be started from current status");
     }
   } catch (error) {
     logger.error("Failed to start challenge:", {
       error: error instanceof Error ? error.message : String(error),
-      gameId,
+      challengeId,
       userId,
     });
     sendError("Failed to start challenge");
@@ -846,16 +890,16 @@ async function handleClaimVictory(
   ws: WebSocket,
   userInfo: MessagePayload
 ): Promise<void> {
-  const { gameId, winnerUsername } = userInfo;
+  const { challengeId } = userInfo;
 
-  if (!gameId) {
-    logger.warn("claimVictory called without gameId");
+  if (!challengeId) {
+    logger.warn("claimVictory called without challengeId");
     return;
   }
 
   const sendErrorToBoth = async (message: string) => {
     const challenge = await prisma.challenge.findUnique({
-      where: { id: gameId },
+      where: { id: challengeId },
       select: { creatorId: true, inviteeId: true },
     });
 
@@ -868,7 +912,7 @@ async function handleClaimVictory(
   };
 
   try {
-    const gameSelections = state.getWinnerSelections(gameId);
+    const gameSelections = state.getWinnerSelections(challengeId);
 
     if (!gameSelections) {
       await sendErrorToBoth(
@@ -878,8 +922,8 @@ async function handleClaimVictory(
     }
 
     const challenge = await prisma.challenge.findUnique({
-      where: { id: gameId },
-      select: { creatorId: true, inviteeId: true },
+      where: { id: challengeId },
+      select: { creatorId: true, inviteeId: true, coins: true },
     });
 
     if (!challenge) {
@@ -913,37 +957,63 @@ async function handleClaimVictory(
       return;
     }
 
-    // Both players agree - complete the challenge
+    const winnerId = creatorSelection;
+    const loserId =
+      winnerId === challenge.creatorId
+        ? challenge.inviteeId!
+        : challenge.creatorId;
+
+    // Complete the challenge - coins are already awarded by the frontend
     const [updatedChallenge] = await prisma.$transaction([
       prisma.challenge.update({
-        where: { id: gameId },
+        where: { id: challengeId },
         data: {
           status: "COMPLETED",
           completedAt: new Date(),
-          winnerId: creatorSelection,
+          winnerId: winnerId,
         },
       }),
       prisma.winnerSelection.deleteMany({
-        where: { challengeId: gameId },
+        where: { challengeId: challengeId },
       }),
     ]);
 
-    logger.info(
-      `Challenge ${gameId} completed with winner ${creatorSelection}`
-    );
+    // Fetch users separately after transaction
+    const [creator, invitee] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: updatedChallenge.creatorId },
+        select: { id: true, name: true, image: true },
+      }),
+      updatedChallenge.inviteeId
+        ? prisma.user.findUnique({
+            where: { id: updatedChallenge.inviteeId },
+            select: { id: true, name: true, image: true },
+          })
+        : Promise.resolve(null),
+    ]);
+
+    const enrichedChallenge = {
+      ...updatedChallenge,
+      User_Challenge_creatorIdToUser: creator,
+      User_Challenge_inviteeIdToUser: invitee,
+    };
+
+    logger.info(`Challenge ${challengeId} completed with winner ${winnerId}`);
 
     // Clean up memory
-    state.deleteWinnerSelections(gameId);
+    state.deleteWinnerSelections(challengeId);
 
     // Broadcast completion
     broadcastToChallengePlayers(challenge.creatorId, challenge.inviteeId, {
       type: "challengeCompleted",
-      updatedChallenge,
+      challengeId: challengeId,
+      winnerId: winnerId,
+      challenge: enrichedChallenge,
     });
   } catch (error) {
     logger.error("Failed to claim victory:", {
       error: error instanceof Error ? error.message : String(error),
-      gameId,
+      challengeId,
     });
 
     try {

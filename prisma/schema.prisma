@@ -39,6 +39,7 @@ model User {
   accounts                            Account[]
   Challenge_Challenge_creatorIdToUser Challenge[]            @relation("Challenge_creatorIdToUser")
   Challenge_Challenge_inviteeIdToUser Challenge[]            @relation("Challenge_inviteeIdToUser")
+  Challenge_Challenge_winnerIdToUser  Challenge[]            @relation("Challenge_winnerIdToUser")
   adminOf                             Chat[]                 @relation("ChatAdmin")
   messages                            ChatMessage[]
   Claim                               Claim[]
@@ -127,6 +128,7 @@ model Challenge {
   isOpen                         Boolean            @default(false)
   User_Challenge_creatorIdToUser User               @relation("Challenge_creatorIdToUser", fields: [creatorId], references: [id])
   User_Challenge_inviteeIdToUser User?              @relation("Challenge_inviteeIdToUser", fields: [inviteeId], references: [id])
+  User_Challenge_winnerIdToUser  User?              @relation("Challenge_winnerIdToUser", fields: [winnerId], references: [id])
   Claim                          Claim[]
   FalseClaimReport               FalseClaimReport[]
   WinnerSelection                WinnerSelection[]
