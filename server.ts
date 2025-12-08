@@ -668,46 +668,85 @@ async function handleJoinOpenChallenge(
   };
 
   try {
-    // Single query to get all needed data
-    const [challenge, user] = await Promise.all([
-      prisma.challenge.findUnique({
-        where: { id: challengeId },
-        select: {
-          status: true,
-          isOpen: true,
-          creatorId: true,
-          inviteeId: true,
-          coins: true,
-        },
-      }),
-      prisma.user.findUnique({
-        where: { id: userId },
-        select: { coins: true, name: true },
-      }),
-    ]);
+    // Get current challenge state
+    const challenge = await prisma.challenge.findUnique({
+      where: { id: challengeId },
+      select: {
+        status: true,
+        isOpen: true,
+        creatorId: true,
+        inviteeId: true,
+        coins: true,
+      },
+    });
 
-    // Validate challenge
+    // Validate challenge exists
     if (!challenge) {
       sendError("Challenge not found");
       return;
     }
 
-    if (!challenge.isOpen || challenge.status !== "PENDING") {
-      sendError("Challenge is not available for joining");
-      return;
-    }
-
+    // Check if user is the creator
     if (challenge.creatorId === userId) {
       sendError("You cannot join your own challenge");
       return;
     }
 
-    if (challenge.inviteeId) {
+    // If user is already the invitee (joined via server action), ensure status is ACCEPTED and broadcast
+    if (challenge.inviteeId === userId) {
+      logger.info(
+        `User ${userId} already joined challenge ${challengeId}, ensuring ACCEPTED status and broadcasting`
+      );
+
+      // Update challenge to ACCEPTED status if not already
+      const updatedChallenge = await prisma.challenge.update({
+        where: { id: challengeId },
+        data: {
+          status: "ACCEPTED",
+          acceptedAt: new Date(),
+        },
+      });
+
+      // Fetch users separately
+      const [creator, invitee] = await Promise.all([
+        prisma.user.findUnique({
+          where: { id: updatedChallenge.creatorId },
+          select: { id: true, name: true, image: true },
+        }),
+        prisma.user.findUnique({
+          where: { id: userId },
+          select: { id: true, name: true, image: true },
+        }),
+      ]);
+
+      const enrichedChallenge = {
+        ...updatedChallenge,
+        User_Challenge_creatorIdToUser: creator,
+        User_Challenge_inviteeIdToUser: invitee,
+      };
+
+      broadcastChallengeUpdate(enrichedChallenge as any);
+      return;
+    }
+
+    // If challenge has a different invitee, reject
+    if (challenge.inviteeId && challenge.inviteeId !== userId) {
       sendError("Challenge already has a participant");
       return;
     }
 
-    // Validate user
+    // Check if challenge is available for joining
+    if (challenge.status !== "PENDING") {
+      sendError("Challenge is not available for joining");
+      return;
+    }
+
+    // Validate user exists and has enough coins
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { coins: true, name: true },
+    });
+
     if (!user) {
       sendError("User not found");
       return;
@@ -720,14 +759,13 @@ async function handleJoinOpenChallenge(
       return;
     }
 
-    // Update challenge
+    // Update challenge - set inviteeId and accept it
     const updatedChallenge = await prisma.challenge.update({
       where: { id: challengeId },
       data: {
         inviteeId: userId,
         status: "ACCEPTED",
         acceptedAt: new Date(),
-        isOpen: false,
       },
     });
 
