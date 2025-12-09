@@ -612,13 +612,15 @@ async function handleAcceptChallenge(userInfo: MessagePayload): Promise<void> {
   }
 
   try {
-    const updatedChallenge = await prisma.challenge.update({
+    // Fetch the updated challenge (server action already updated it)
+    const updatedChallenge = await prisma.challenge.findUnique({
       where: { id: challengeId },
-      data: {
-        status: "ACCEPTED",
-        acceptedAt: new Date(),
-      },
     });
+
+    if (!updatedChallenge) {
+      logger.error(`Challenge ${challengeId} not found`);
+      return;
+    }
 
     // Fetch users separately to avoid null constraint errors
     const [creator, invitee] = await Promise.all([
@@ -643,7 +645,7 @@ async function handleAcceptChallenge(userInfo: MessagePayload): Promise<void> {
 
     broadcastChallengeUpdate(enrichedChallenge as any);
   } catch (error) {
-    logger.error(`Failed to accept challenge ${challengeId}:`, {
+    logger.error(`Failed to broadcast challenge update ${challengeId}:`, {
       error: error instanceof Error ? error.message : String(error),
     });
   }
