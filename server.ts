@@ -266,6 +266,7 @@ type ChallengeData = {
   completedAt: Date | null;
   winnerId: string | null;
   claimTime: Date | null;
+  isOpen: boolean;
 };
 
 function broadcastChallengeUpdate(updatedChallenge: ChallengeData): void {
