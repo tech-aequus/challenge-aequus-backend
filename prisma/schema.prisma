@@ -48,6 +48,7 @@ model User {
   FalseClaimReport                    FalseClaimReport[]
   receivedRequests                    FriendRequest[]        @relation("ReceivedRequests")
   sentRequests                        FriendRequest[]        @relation("SentRequests")
+  KYC                                 KYC?
   factions                            Member[]
   MessageReadStatus                   MessageReadStatus[]
   openChallenges                      OpenChallenge[]        @relation("Creator")
@@ -448,6 +449,35 @@ model UserChats {
   @@map("_UserChats")
 }
 
+model KYC {
+  id                   String    @id
+  userId               String    @unique
+  firstName            String?
+  lastName             String?
+  otherName            String?
+  dob                  DateTime?
+  country              String?
+  residentialAddress   String?
+  city                 String?
+  postcode             String?
+  phoneNumber          String
+  idType               String?
+  idNumber             String?
+  idKey                String?
+  selfieKey            String?
+  proofOfAddressKey    String?
+  tier                 Int       @default(1)
+  tier1Status          KYCStatus @default(PENDING)
+  tier2Status          KYCStatus @default(PENDING)
+  tier3Status          KYCStatus @default(PENDING)
+  tier1RejectionReason String?
+  tier2RejectionReason String?
+  tier3RejectionReason String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime
+  User                 User      @relation(fields: [userId], references: [id])
+}
+
 enum ChallengeStatus {
   PENDING
   ACCEPTED
@@ -502,4 +532,11 @@ enum TeamStatus {
 enum GameType {
   SOLO
   TEAM
+}
+
+enum KYCStatus {
+  PENDING
+  READY_FOR_REVIEW
+  APPROVED
+  REJECTED
 }
