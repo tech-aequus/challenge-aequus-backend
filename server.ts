@@ -69,30 +69,29 @@ function broadcastOnlineUsers() {
   });
 }
 
-function broadcastToChallengePlayers(gameId: string, message: any) {
-  // Get challenge details to find both players
-  prisma.challenge
-    .findUnique({
-      where: { id: gameId },
-      select: { creatorId: true, inviteeId: true },
-    })
-    .then((challenge) => {
-      if (challenge) {
-        const players = [challenge.creatorId, challenge.inviteeId];
-        players.forEach((playerId) => {
-          const playerWs = onlineUsers.get(playerId);
-          if (playerWs && playerWs.readyState === WebSocket.OPEN) {
-            playerWs.send(JSON.stringify(message));
-          }
-        });
-      }
-    })
-    .catch((error) => {
-      logger.error(`Error broadcasting to challenge players: ${error}`);
-    });
-}
+function broadcastToChallengePlayers(
+  creatorId: string,
+  inviteeId: string | null,
+  message: MessagePayload
+): void {
+  const players = [creatorId, inviteeId].filter(
+    (id): id is string => id !== null
+  );
+  const messageStr = JSON.stringify(message);
 
-function broadcastChallengeUpdate(updatedChallenge: {
+  players.forEach((playerId) => {
+    const playerData = state.getUserData(playerId);
+
+    if (playerData?.ws.readyState === WebSocket.OPEN) {
+      try {
+        playerData.ws.send(messageStr);
+      } catch (error) {
+        logger.error(`Failed to broadcast to player ${playerId}:`, error);
+      }
+    }
+  });
+} // Type for Challenge Data
+type ChallengeData = {
   id: string;
   creatorId: string;
   inviteeId: string | null;
@@ -109,56 +108,52 @@ function broadcastChallengeUpdate(updatedChallenge: {
   completedAt: Date | null;
   winnerId: string | null;
   claimTime: Date | null;
-}) {
-  const usersInChallenge = [
-    updatedChallenge.creatorId,
-    updatedChallenge.inviteeId,
-  ]
-    .filter(Boolean)
-    .map((username) => onlineUsers.get(username))
-    .filter((ws) => ws);
+  isOpen: boolean;
+};
 
+function broadcastChallengeUpdate(updatedChallenge: ChallengeData): void {
   const enrichedChallenge = enrichChallengeWithSelections(updatedChallenge);
 
   const message = JSON.stringify({
     type: "challengeAccepted",
-    updatedChallenge: enrichedChallenge,
-  });
-  usersInChallenge.forEach((ws) => {
-    if (ws?.readyState === WebSocket.OPEN) {
-      ws.send(message);
-    }
-  });
+    challenge: enrichedChallenge,
+  };
+
+  broadcastToChallengePlayers(
+    updatedChallenge.creatorId,
+    updatedChallenge.inviteeId,
+    message
+  );
 }
 
-function broadcastGameStateUpdate(
-  updateState: {
-    id: string;
-    creatorId: string;
-    inviteeId: string | null;
-    status: $Enums.ChallengeStatus;
-    game: string;
-    description: string | null;
-    coins: number;
-    xp: number;
-    rules: JsonValue;
-    createdAt: Date;
-    updatedAt: Date;
-    acceptedAt: Date | null;
-    expiresAt: Date;
-    completedAt: Date | null;
-    winnerId: string | null;
-    claimTime: Date | null;
-  },
-  username: any
-) {
-  const usersInChallenge = [updateState.creatorId, updateState.inviteeId]
-    .filter(Boolean)
-    .map((username) => onlineUsers.get(username))
-    .filter((ws) => ws);
-
+function broadcastGameStateUpdate(updateState: ChallengeData): void {
   const enrichedState = enrichChallengeWithSelections(updateState);
+  const message: MessagePayload = {
+    type: "challengeStartedBy",
+    updateState: enrichedState,
+  };
 
+  broadcastToChallengePlayers(
+    updateState.creatorId,
+    updateState.inviteeId,
+    message
+  );
+}
+
+function broadcastNewChallenge(newChallenge: ChallengeData): void {
+  const message: MessagePayload = {
+    type: "challengeCreated",
+    challenge: newChallenge,
+  };
+
+  broadcastToChallengePlayers(
+    newChallenge.creatorId,
+    newChallenge.inviteeId,
+    message
+  );
+}
+
+function broadcastOpenChallenge(newChallenge: ChallengeData): void {
   const message = JSON.stringify({
     type: `challengeStartedBy`,
     updateState: enrichedState,
@@ -170,62 +165,64 @@ function broadcastGameStateUpdate(
   });
 }
 
-function broadcastNewChallenge(newChallenge: {
-  id: string;
-  creatorId: string;
-  inviteeId: string | null;
-  status: $Enums.ChallengeStatus;
-  game: string;
-  description: string | null;
-  coins: number;
-  xp: number;
-  rules: JsonValue;
-  createdAt: Date;
-  updatedAt: Date;
-  acceptedAt: Date | null;
-  expiresAt: Date;
-  completedAt: Date | null;
-  winnerId: string | null;
-  claimTime: Date | null;
-}) {
-  const usersInChallenge = [newChallenge.creatorId, newChallenge.inviteeId]
-    .filter(Boolean)
-    .map((username) => onlineUsers.get(username))
-    .filter((ws) => ws);
+wss.on("connection", (ws: WebSocket) => {
+  const connectionId = `conn_${Date.now()}_${Math.random()
+    .toString(36)
+    .substr(2, 9)}`;
 
-  const message = JSON.stringify({ type: "challengeCreated", newChallenge });
-
-  usersInChallenge.forEach((ws) => {
-    if (ws?.readyState === WebSocket.OPEN) {
-      ws.send(message);
-    }
+  ws.on("error", (error) => {
+    logger.error(`WebSocket error for ${connectionId}:`, error);
   });
-}
 
-function broadcastOpenChallenge(newChallenge: {
-  id: string;
-  creatorId: string;
-  inviteeId: string | null;
-  status: $Enums.ChallengeStatus;
-  game: string;
-  description: string | null;
-  coins: number;
-  xp: number;
-  rules: JsonValue;
-  createdAt: Date;
-  updatedAt: Date;
-  acceptedAt: Date | null;
-  expiresAt: Date;
-  completedAt: Date | null;
-  winnerId: string | null;
-  claimTime: Date | null;
-}) {
-  const message = JSON.stringify({ type: "openChallengeCreated", newChallenge });
+  ws.on("message", async (message: string) => {
+    try {
+      const userInfo: MessagePayload = JSON.parse(message);
 
-  // Broadcast to all online users
-  onlineUsers.forEach((ws) => {
-    if (ws?.readyState === WebSocket.OPEN) {
-      ws.send(message);
+      // Route to appropriate handler based on message type
+      switch (userInfo.type) {
+        case "setOnline":
+          await handleSetOnline(ws, userInfo);
+          break;
+        case "selectWinner":
+          await handleSelectWinner(ws, userInfo);
+          break;
+        case "getWinnerSelections":
+          await handleGetWinnerSelections(ws, userInfo);
+          break;
+        case "broadcastChallenge":
+          await handleBroadcastChallenge(userInfo);
+          break;
+        case "acceptChallenge":
+          await handleAcceptChallenge(userInfo);
+          break;
+        case "joinOpenChallenge":
+          await handleJoinOpenChallenge(ws, userInfo);
+          break;
+        case "startChallenge":
+          await handleStartChallenge(ws, userInfo);
+          break;
+        case "claimVictory":
+          await handleClaimVictory(ws, userInfo);
+          break;
+        default:
+          logger.warn(`Unknown message type: ${userInfo.type}`);
+      }
+    } catch (error) {
+      logger.error(`Error processing message:`, {
+        error: error instanceof Error ? error.message : String(error),
+        connectionId,
+      });
+
+      try {
+        ws.send(
+          JSON.stringify({
+            type: "error",
+            message: "Failed to process message",
+          })
+        );
+      } catch (sendError) {
+        logger.error("Failed to send error message:", sendError);
+      }
     }
   });
 }
@@ -245,111 +242,119 @@ wss.on("connection", (ws: WebSocket) => {
           select: { id: true },
         });
 
-        if (userInfo.online || userExists) {
-          onlineUsers.set(userInfo.username, ws);
-          logger.info(`${userInfo.username} is now online`);
-          broadcastOnlineUsers();
-        } else {
-          logger.info(`${userInfo.username} does not exist in the database`);
-        }
-      }
+  if (online && userExists) {
+    state.setUserOnline(userId, ws, userExists.name);
+    broadcastOnlineUsers();
+  } else if (!userExists) {
+    logger.warn(`User ${userId} does not exist in the database`);
+  }
+}
 
-      // Handle winner selection
-      if (userInfo.type === "selectWinner") {
-        const { gameId, playerId, selectedWinner } = userInfo;
+async function handleSelectWinner(
+  ws: WebSocket,
+  userInfo: MessagePayload
+): Promise<void> {
+  const { challengeId, playerId, winnerId } = userInfo;
 
-        logger.info(
-          `Winner selection received: gameId=${gameId}, playerId=${playerId}, selectedWinner=${selectedWinner}`
-        );
+  // Validation
+  if (!challengeId || !playerId || !winnerId) {
+    logger.warn("selectWinner called with missing parameters", {
+      challengeId,
+      playerId,
+      winnerId,
+    });
+    return;
+  }
 
-        try {
-          // Save to database using upsert (create or update)
-          await prisma.winnerSelection.upsert({
-            where: {
-              challengeId_playerId: {
-                challengeId: gameId,
-                playerId: playerId
-              }
-            },
-            create: {
-              challengeId: gameId,
-              playerId: playerId,
-              selectedWinner: selectedWinner
-            },
-            update: {
-              selectedWinner: selectedWinner,
-              updatedAt: new Date()
-            }
-          });
+  try {
+    // Use transaction for atomicity
+    const [, challenge] = await prisma.$transaction(async (tx) => {
+      // Upsert winner selection
+      const selection = await tx.winnerSelection.upsert({
+        where: {
+          challengeId_playerId: {
+            challengeId: challengeId,
+            playerId: playerId,
+          },
+        },
+        create: {
+          challengeId: challengeId,
+          playerId: playerId,
+          selectedWinner: winnerId,
+        },
+        update: {
+          selectedWinner: winnerId,
+          updatedAt: new Date(),
+        },
+      });
 
-          // Initialize the game's selections if it doesn't exist
-          if (!winnerSelections.has(gameId)) {
-            winnerSelections.set(gameId, new Map());
-          }
+      // Fetch challenge data
+      const challengeData = await tx.challenge.findUnique({
+        where: { id: challengeId },
+      });
 
-          // Store the selection in memory cache
-          const gameSelections = winnerSelections.get(gameId);
-          gameSelections.set(playerId, selectedWinner);
+      return [selection, challengeData];
+    });
 
-          // Fetch the full challenge data
-          const challenge = await prisma.challenge.findUnique({
-            where: { id: gameId }
-          });
+    if (!challenge) {
+      logger.error(`Challenge not found: ${challengeId}`);
+      ws.send(
+        JSON.stringify({
+          type: "error",
+          message: "Challenge not found",
+        })
+      );
+      return;
+    }
 
-          if (!challenge) {
-            logger.error(`Challenge not found: ${gameId}`);
-            return;
-          }
+    // Update in-memory cache
+    state.setWinnerSelection(challengeId, playerId, winnerId);
 
-          // Enrich challenge with winner selections
-          const enrichedChallenge = enrichChallengeWithSelections(challenge);
+    // Enrich and broadcast
+    const enrichedChallenge = enrichChallengeWithSelections(challenge);
 
-          logger.info(
-            `Broadcasting updated challenge with selections for ${gameId}:`,
-            JSON.stringify(enrichedChallenge.winnerSelections)
-          );
+    broadcastToChallengePlayers(challenge.creatorId, challenge.inviteeId, {
+      type: "challengeUpdate",
+      challenge: enrichedChallenge,
+    });
+  } catch (error) {
+    logger.error(`Failed to save winner selection:`, {
+      error: error instanceof Error ? error.message : String(error),
+      challengeId,
+      playerId,
+    });
 
-          // Broadcast the full challenge update to both players
-          const usersInChallenge = [challenge.creatorId, challenge.inviteeId]
-            .filter(Boolean)
-            .map((username) => onlineUsers.get(username))
-            .filter((ws) => ws);
+    try {
+      ws.send(
+        JSON.stringify({
+          type: "error",
+          message: "Failed to save winner selection",
+        })
+      );
+    } catch (sendError) {
+      logger.error("Failed to send error response:", sendError);
+    }
+  }
+}
 
-          const message = JSON.stringify({
-            type: "challengeUpdate",
-            challenge: enrichedChallenge,
-          });
-
-          usersInChallenge.forEach((ws) => {
-            if (ws?.readyState === WebSocket.OPEN) {
-              ws.send(message);
-            }
-          });
-
-          logger.info(`Winner selection saved and challenge update broadcasted for ${gameId}`);
-        } catch (error) {
-          logger.error(`Failed to save winner selection to database: ${error}`);
-          ws.send(
-            JSON.stringify({
-              type: "error",
-              message: "Failed to save winner selection",
-            })
-          );
-        }
-      }
-
-      // Handle request for all winner selections
-      if (userInfo.type === "getWinnerSelections") {
-        logger.info(`📥 getWinnerSelections request from ${userInfo.username}`);
-        try {
-          // Load fresh data from database
-          const dbSelections = await prisma.winnerSelection.findMany({
-            include: {
-              Challenge: {
-                select: { status: true }
-              }
-            }
-          });
+async function handleGetWinnerSelections(
+  ws: WebSocket,
+  userInfo: MessagePayload
+): Promise<void> {
+  try {
+    // Optimized query - only fetch IN_PROGRESS challenges
+    const dbSelections = await prisma.winnerSelection.findMany({
+      where: {
+        Challenge: {
+          status: "IN_PROGRESS",
+        },
+      },
+      select: {
+        challengeId: true,
+        playerId: true,
+        selectedWinner: true,
+      },
+    });
 
           logger.info(`📊 Found ${dbSelections.length} winner selections in database`);
 
@@ -406,139 +411,179 @@ wss.on("connection", (ws: WebSocket) => {
         }
       }
 
-      if (userInfo.type === "createChallenge") {
-        const {
-          creatorUsername,
-          coins,
-          xp,
-          opponentUsername, // Legacy field for backward compatibility
-          inviteeId, // New unified field
-          game,
-          description,
-          rules,
-          isOpen = false, // New unified field
-          status, // All challenges use PENDING status
-        } = userInfo;
+/**
+ * Handle broadcasting an already-created challenge from the database
+ * This is called after a server action creates the challenge
+ */
+async function handleBroadcastChallenge(
+  userInfo: MessagePayload
+): Promise<void> {
+  const { challenge } = userInfo;
 
-        // Use the new unified approach: inviteeId for target user, isOpen for open challenges
-        const targetInvitee = isOpen ? null : (inviteeId || opponentUsername);
-        const challengeStatus = "PENDING"; // All challenges start as PENDING
+  if (!challenge || !challenge.id) {
+    logger.warn("broadcastChallenge called without valid challenge");
+    return;
+  }
 
-        const newChallenge = await prisma.challenge.create({
-          data: {
-            game,
-            creatorId: creatorUsername,
-            inviteeId: targetInvitee,
-            coins,
-            xp,
-            status: challengeStatus,
-            description: description || null,
-            rules: rules || { timeLimit: "30 minutes", maxMoves: 100 },
-            isOpen: isOpen,
-            expiresAt: new Date(new Date().getTime() + 24 * 60 * 60 * 1000),
-          },
-        });        // For open challenges, broadcast to all online users. For private challenges, broadcast to specific users
-        if (isOpen) {
-          broadcastOpenChallenge(newChallenge);
-        } else {
-          broadcastNewChallenge(newChallenge);
-        }
+  // Broadcast based on challenge type
+  if (challenge.isOpen) {
+    broadcastOpenChallenge(challenge);
+  } else {
+    broadcastNewChallenge(challenge);
+  }
+}
 
-        logger.info(
-          isOpen
-            ? `A new open challenge is created by ${creatorUsername} for ${game}`
-            : `A new challenge is created between ${creatorUsername} and ${targetInvitee}`
-        );
-      }
+async function handleAcceptChallenge(userInfo: MessagePayload): Promise<void> {
+  const { challengeId } = userInfo;
 
-      if (userInfo.type === "acceptChallenge") {
-        const { gameId } = userInfo;
-        try {
-          const updatedChallenge = await prisma.challenge.update({
-            where: { id: gameId },
-            data: {
-              status: "ACCEPTED",
-              acceptedAt: new Date(),
-            },
-          });
-          logger.info(`Challenge ${gameId} status updated to ACCEPTED`);
-          broadcastChallengeUpdate(updatedChallenge);
-        } catch (error) {
-          logger.error(`Failed to update challenge ${gameId}: ${error}`);
-        }
-      }
+  if (!challengeId) {
+    logger.warn("acceptChallenge called without challengeId");
+    return;
+  }
 
-      // Handle joining open challenges
-      if (userInfo.type === "joinOpenChallenge") {
-        const { gameId, username } = userInfo;
-        try {
-          // Check if challenge exists and is open
-          const challenge = await prisma.challenge.findUnique({
-            where: { id: gameId },
-            select: {
-              status: true,
-              isOpen: true,
-              creatorId: true,
-              inviteeId: true,
-              coins: true // Include coins amount needed for validation
-            },
-          });
+  try {
+    // Fetch the updated challenge (server action already updated it)
+    const updatedChallenge = await prisma.challenge.findUnique({
+      where: { id: challengeId },
+    });
 
-          if (!challenge) {
-            ws.send(
-              JSON.stringify({
-                type: "joinOpenChallengeFailed",
-                message: "Challenge not found",
-              })
-            );
-            return;
-          }
+    if (!updatedChallenge) {
+      logger.error(`Challenge ${challengeId} not found`);
+      return;
+    }
 
-          if (!challenge.isOpen || challenge.status !== "PENDING") {
-            ws.send(
-              JSON.stringify({
-                type: "joinOpenChallengeFailed",
-                message: "Challenge is not available for joining",
-              })
-            );
-            return;
-          }
+    // Fetch users separately to avoid null constraint errors
+    const [creator, invitee] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: updatedChallenge.creatorId },
+        select: { id: true, name: true, image: true },
+      }),
+      updatedChallenge.inviteeId
+        ? prisma.user.findUnique({
+            where: { id: updatedChallenge.inviteeId },
+            select: { id: true, name: true, image: true },
+          })
+        : Promise.resolve(null),
+    ]);
 
-          if (challenge.creatorId === username) {
-            ws.send(
-              JSON.stringify({
-                type: "joinOpenChallengeFailed",
-                message: "You cannot join your own challenge",
-              })
-            );
-            return;
-          }
+    // Enrich challenge with user data
+    const enrichedChallenge = {
+      ...updatedChallenge,
+      User_Challenge_creatorIdToUser: creator,
+      User_Challenge_inviteeIdToUser: invitee,
+    };
 
-          if (challenge.inviteeId) {
-            ws.send(
-              JSON.stringify({
-                type: "joinOpenChallengeFailed",
-                message: "Challenge already has a participant",
-              })
-            );
-            return;
-          }
+    broadcastChallengeUpdate(enrichedChallenge as any);
+  } catch (error) {
+    logger.error(`Failed to broadcast challenge update ${challengeId}:`, {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
 
-          // Check if the user has sufficient coins before allowing them to join
-          const user = await prisma.user.findUnique({
-            where: { name: username },
-            select: { coins: true },
-          });
+async function handleJoinOpenChallenge(
+  ws: WebSocket,
+  userInfo: MessagePayload
+): Promise<void> {
+  const { challengeId, userId } = userInfo;
 
-          if (!user) {
-            ws.send(
-              JSON.stringify({
-                type: "joinOpenChallengeFailed",
-                message: "User not found",
-              })
-            );
-            return;
-          }
+  if (!challengeId || !userId) {
+    logger.warn("joinOpenChallenge called with missing parameters");
+    return;
+  }
+
+  const sendError = (message: string) => {
+    try {
+      ws.send(JSON.stringify({ type: "joinOpenChallengeFailed", message }));
+    } catch (error) {
+      logger.error("Failed to send error to client:", error);
+    }
+  };
+
+  try {
+    // Get current challenge state
+    const challenge = await prisma.challenge.findUnique({
+      where: { id: challengeId },
+      select: {
+        status: true,
+        isOpen: true,
+        creatorId: true,
+        inviteeId: true,
+        coins: true,
+      },
+    });
+
+    // Validate challenge exists
+    if (!challenge) {
+      sendError("Challenge not found");
+      return;
+    }
+
+    // Check if user is the creator
+    if (challenge.creatorId === userId) {
+      sendError("You cannot join your own challenge");
+      return;
+    }
+
+    // If user is already the invitee (joined via server action), ensure status is ACCEPTED and broadcast
+    if (challenge.inviteeId === userId) {
+      logger.info(
+        `User ${userId} already joined challenge ${challengeId}, ensuring ACCEPTED status and broadcasting`
+      );
+
+      // Update challenge to ACCEPTED status if not already
+      const updatedChallenge = await prisma.challenge.update({
+        where: { id: challengeId },
+        data: {
+          status: "ACCEPTED",
+          acceptedAt: new Date(),
+        },
+      });
+
+      // Fetch users separately
+      const [creator, invitee] = await Promise.all([
+        prisma.user.findUnique({
+          where: { id: updatedChallenge.creatorId },
+          select: { id: true, name: true, image: true },
+        }),
+        prisma.user.findUnique({
+          where: { id: userId },
+          select: { id: true, name: true, image: true },
+        }),
+      ]);
+
+      const enrichedChallenge = {
+        ...updatedChallenge,
+        User_Challenge_creatorIdToUser: creator,
+        User_Challenge_inviteeIdToUser: invitee,
+      };
+
+      broadcastChallengeUpdate(enrichedChallenge as any);
+      return;
+    }
+
+    // If challenge has a different invitee, reject
+    if (challenge.inviteeId && challenge.inviteeId !== userId) {
+      sendError("Challenge already has a participant");
+      return;
+    }
+
+    // Check if challenge is available for joining
+    if (challenge.status !== "PENDING") {
+      sendError("Challenge is not available for joining");
+      return;
+    }
+
+    // Validate user exists and has enough coins
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { coins: true, name: true },
+    });
+
+    if (!user) {
+      sendError("User not found");
+      return;
+    }
 
           if (user.coins < challenge.coins) {
             ws.send(
@@ -550,56 +595,68 @@ wss.on("connection", (ws: WebSocket) => {
             return;
           }
 
-          // Update challenge with the joining user and change status to ACCEPTED
-          const updatedChallenge = await prisma.challenge.update({
-            where: { id: gameId },
-            data: {
-              inviteeId: username,
-              status: "ACCEPTED",
-              acceptedAt: new Date(),
-              isOpen: false, // No longer open once someone joins
-            },
-          });
+    // Update challenge - set inviteeId and accept it
+    const updatedChallenge = await prisma.challenge.update({
+      where: { id: challengeId },
+      data: {
+        inviteeId: userId,
+        status: "ACCEPTED",
+        acceptedAt: new Date(),
+      },
+    });
 
-          logger.info(`User ${username} joined open challenge ${gameId}`);
-          broadcastChallengeUpdate(updatedChallenge);
-        } catch (error) {
-          logger.error(`Failed to join open challenge ${gameId}: ${error}`);
-          ws.send(
-            JSON.stringify({
-              type: "joinOpenChallengeFailed",
-              message: "Failed to join challenge",
-            })
-          );
-        }
-      }
+    // Fetch users separately
+    const [creator, invitee] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: updatedChallenge.creatorId },
+        select: { id: true, name: true, image: true },
+      }),
+      prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, name: true, image: true },
+      }),
+    ]);
 
-      if (userInfo.type === "startChallenge") {
-        const { gameId, creatorUsername, opponentUsername, username } =
-          userInfo;
-        logger.info(
-          `Start challenge requested by ${username} for gameId ${gameId}`
-        );
+    const enrichedChallenge = {
+      ...updatedChallenge,
+      User_Challenge_creatorIdToUser: creator,
+      User_Challenge_inviteeIdToUser: invitee,
+    };
 
-        const isUserOnline =
-          onlineUsers.has(creatorUsername) && onlineUsers.has(opponentUsername);
-        logger.info(`Is user online? ${isUserOnline}`);
+    broadcastChallengeUpdate(enrichedChallenge as any);
+  } catch (error) {
+    logger.error(`Failed to join open challenge:`, {
+      error: error instanceof Error ? error.message : String(error),
+      challengeId,
+      userId,
+    });
+    sendError("Failed to join challenge");
+  }
+}
 
-        if (!isUserOnline) {
-          ws.send(
-            JSON.stringify({
-              type: "failedToStartChallenge",
-              message: "Opponent is Offline",
-            })
-          );
-          logger.info(`Opponent is offline, cannot start challenge`);
-          return;
-        }
+async function handleStartChallenge(
+  ws: WebSocket,
+  userInfo: MessagePayload
+): Promise<void> {
+  const { challengeId, userId } = userInfo;
 
-        const challenge = await prisma.challenge.findUnique({
-          where: { id: gameId },
-          select: { status: true },
-        });
+  if (!challengeId || !userId) {
+    logger.warn("startChallenge called with missing parameters");
+    return;
+  }
+
+  const sendError = (message: string) => {
+    try {
+      ws.send(JSON.stringify({ type: "failedToStartChallenge", message }));
+    } catch (error) {
+      logger.error("Failed to send error:", error);
+    }
+  };
+
+  try {
+    const challenge = await prisma.challenge.findUnique({
+      where: { id: challengeId },
+    });
 
         if (!challenge) {
           ws.send(
@@ -612,130 +669,104 @@ wss.on("connection", (ws: WebSocket) => {
           return;
         }
 
-        const currentStatus = challenge.status;
-        logger.info(`Current challenge status: ${currentStatus}`);
+    // Only allow invitee to start
+    if (userId !== challenge.inviteeId) {
+      sendError("Only the invited player can start the challenge");
+      return;
+    }
 
-        if (!startChallengeMap.has(gameId)) {
-          startChallengeMap.set(gameId, {
-            creatorStarted: false,
-            opponentStarted: false,
-          });
-        }
+    // Check if both users are online
+    const bothOnline =
+      state.isUserOnline(challenge.creatorId) &&
+      state.isUserOnline(challenge.inviteeId!);
 
-        const challengeState = startChallengeMap.get(gameId);
+    if (!bothOnline) {
+      sendError("Opponent is Offline");
+      logger.info("Opponent offline, cannot start challenge");
+      return;
+    }
 
-        if (currentStatus === "STARTING") {
-          if (username === creatorUsername && challengeState.creatorStarted) {
-            ws.send(
-              JSON.stringify({
-                type: "failedToStartChallenge",
-                message: "You already started the challenge",
-              })
-            );
-            logger.info(`${username} has already started the challenge`);
-            return;
-          }
-          if (username === opponentUsername && challengeState.opponentStarted) {
-            ws.send(
-              JSON.stringify({
-                type: "failedToStartChallenge",
-                message: "You already started the challenge",
-              })
-            );
-            logger.info(`${username} has already started the challenge`);
-            return;
-          }
-          if (username === creatorUsername) {
-            challengeState.creatorStarted = true;
-          } else if (username === opponentUsername) {
-            challengeState.opponentStarted = true;
-          }
+    if (challenge.status === "ACCEPTED") {
+      // Directly start the game - no confirmation needed
+      const updatedChallenge = await prisma.challenge.update({
+        where: { id: challengeId },
+        data: { status: "IN_PROGRESS" },
+      });
 
-          logger.info(`Added ${username} to usersStarted map`);
-          if (challengeState.creatorStarted && challengeState.opponentStarted) {
-            logger.info(
-              `Both users started the challenge, setting to IN_PROGRESS`
-            );
-
-            const updatedChallenge = await prisma.challenge.update({
-              where: { id: gameId },
-              data: { status: "IN_PROGRESS" },
-            });
-
-            broadcastGameStateUpdate(updatedChallenge, username);
-            startChallengeMap.delete(gameId);
-          }
-        } else if (currentStatus === "ACCEPTED") {
-          logger.info(`Challenge is in ACCEPTED state, moving to STARTING`);
-
-          const updatedChallenge = await prisma.challenge.update({
-            where: { id: gameId },
-            data: { status: "STARTING" },
-          });
-
-          if (username === creatorUsername) {
-            challengeState.creatorStarted = true;
-          } else if (username === opponentUsername) {
-            challengeState.opponentStarted = true;
-          }
-          logger.info(`Added ${username} to usersStarted map`);
-
-          broadcastGameStateUpdate(updatedChallenge, username);
-        } else {
-          ws.send(
-            JSON.stringify({
-              type: "failedToStartChallenge",
-              message: "Challenge already ongoing or completed",
+      // Fetch users separately
+      const [creator, invitee] = await Promise.all([
+        prisma.user.findUnique({
+          where: { id: updatedChallenge.creatorId },
+          select: { id: true, name: true, image: true },
+        }),
+        updatedChallenge.inviteeId
+          ? prisma.user.findUnique({
+              where: { id: updatedChallenge.inviteeId },
+              select: { id: true, name: true, image: true },
             })
-          );
-          logger.info(`Challenge already ongoing or completed`);
-        }
-      }
+          : Promise.resolve(null),
+      ]);
 
-      if (userInfo.type === "claimVictory") {
-        const { gameId, winnerUsername } = userInfo;
+      const enrichedChallenge = {
+        ...updatedChallenge,
+        User_Challenge_creatorIdToUser: creator,
+        User_Challenge_inviteeIdToUser: invitee,
+      };
 
-        // Check if both players have selected the same winner
-        const gameSelections = winnerSelections.get(gameId);
-        if (!gameSelections) {
-          // Get challenge details to broadcast to both players
-          const challenge = await prisma.challenge.findUnique({
-            where: { id: gameId },
-            select: { creatorId: true, inviteeId: true },
-          });
+      broadcastGameStateUpdate(enrichedChallenge as any);
+      state.deleteChallengeState(challengeId);
+    } else {
+      sendError("Challenge cannot be started from current status");
+    }
+  } catch (error) {
+    logger.error("Failed to start challenge:", {
+      error: error instanceof Error ? error.message : String(error),
+      challengeId,
+      userId,
+    });
+    sendError("Failed to start challenge");
+  }
+}
 
-          if (challenge) {
-            const noSelectionsMessage = JSON.stringify({
-              type: "claimVictoryFailed",
-              message:
-                "No winner selections found. Both players must select a winner first.",
-            });
+async function handleClaimVictory(
+  ws: WebSocket,
+  userInfo: MessagePayload
+): Promise<void> {
+  const { challengeId } = userInfo;
 
-            const creatorWs = onlineUsers.get(challenge.creatorId);
-            const inviteeWs = onlineUsers.get(challenge.inviteeId);
+  if (!challengeId) {
+    logger.warn("claimVictory called without challengeId");
+    return;
+  }
 
-            if (creatorWs && creatorWs.readyState === WebSocket.OPEN) {
-              creatorWs.send(noSelectionsMessage);
-            }
-            if (inviteeWs && inviteeWs.readyState === WebSocket.OPEN) {
-              inviteeWs.send(noSelectionsMessage);
-            }
-          } else {
-            ws.send(
-              JSON.stringify({
-                type: "claimVictoryFailed",
-                message: "Challenge not found.",
-              })
-            );
-          }
-          return;
-        }
+  const sendErrorToBoth = async (message: string) => {
+    const challenge = await prisma.challenge.findUnique({
+      where: { id: challengeId },
+      select: { creatorId: true, inviteeId: true },
+    });
 
-        // Get challenge details
-        const challenge = await prisma.challenge.findUnique({
-          where: { id: gameId },
-          select: { creatorId: true, inviteeId: true },
-        });
+    if (challenge) {
+      broadcastToChallengePlayers(challenge.creatorId, challenge.inviteeId, {
+        type: "claimVictoryFailed",
+        message,
+      });
+    }
+  };
+
+  try {
+    const gameSelections = state.getWinnerSelections(challengeId);
+
+    if (!gameSelections) {
+      await sendErrorToBoth(
+        "No winner selections found. Both players must select a winner first."
+      );
+      return;
+    }
+
+    const challenge = await prisma.challenge.findUnique({
+      where: { id: challengeId },
+      select: { creatorId: true, inviteeId: true, coins: true },
+    });
 
         if (!challenge) {
           ws.send(
@@ -796,70 +827,97 @@ wss.on("connection", (ws: WebSocket) => {
           return;
         }
 
-        // If we get here, both players agree on the winner
-        try {
-          const updatedChallenge = await prisma.challenge.update({
-            where: { id: gameId },
-            data: {
-              status: "COMPLETED",
-              completedAt: new Date(),
-              winnerId: creatorSelection, // Use the agreed-upon winner
-            },
-          });
+    const winnerId = creatorSelection;
+    const loserId =
+      winnerId === challenge.creatorId
+        ? challenge.inviteeId!
+        : challenge.creatorId;
 
-          logger.info(
-            `Challenge ${gameId} status updated to COMPLETED with winner ${creatorSelection}`
-          );
+    // Complete the challenge - coins are already awarded by the frontend
+    const [updatedChallenge] = await prisma.$transaction([
+      prisma.challenge.update({
+        where: { id: challengeId },
+        data: {
+          status: "COMPLETED",
+          completedAt: new Date(),
+          winnerId: winnerId,
+        },
+      }),
+      prisma.winnerSelection.deleteMany({
+        where: { challengeId: challengeId },
+      }),
+    ]);
 
-          const message = JSON.stringify({
-            type: "challengeCompleted",
-            updatedChallenge,
-          });
+    // Fetch users separately after transaction
+    const [creator, invitee] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: updatedChallenge.creatorId },
+        select: { id: true, name: true, image: true },
+      }),
+      updatedChallenge.inviteeId
+        ? prisma.user.findUnique({
+            where: { id: updatedChallenge.inviteeId },
+            select: { id: true, name: true, image: true },
+          })
+        : Promise.resolve(null),
+    ]);
 
-          onlineUsers.get(updatedChallenge.creatorId)?.send(message);
-          onlineUsers.get(updatedChallenge.inviteeId)?.send(message);
+    const enrichedChallenge = {
+      ...updatedChallenge,
+      User_Challenge_creatorIdToUser: creator,
+      User_Challenge_inviteeIdToUser: invitee,
+    };
 
-          // Clean up winner selections for this game from both memory and database
-          winnerSelections.delete(gameId);
+    logger.info(`Challenge ${challengeId} completed with winner ${winnerId}`);
 
-          try {
-            await prisma.winnerSelection.deleteMany({
-              where: { challengeId: gameId }
-            });
-            logger.info(`Cleaned up winner selections for completed challenge ${gameId}`);
-          } catch (error) {
-            logger.error(`Failed to clean up winner selections from database: ${error}`);
-          }
-        } catch (error) {
-          logger.error(
-            `Failed to claim victory for challenge ${gameId}: ${error}`
-          );
-          ws.send(
-            JSON.stringify({
-              type: "claimVictoryFailed",
-              message: "Failed to update challenge status.",
-            })
-          );
-        }
-      }
-    } catch (error) {
-      logger.error(`Error processing message: ${error}`);
+    // Clean up memory
+    state.deleteWinnerSelections(challengeId);
+
+    // Broadcast completion
+    broadcastToChallengePlayers(challenge.creatorId, challenge.inviteeId, {
+      type: "challengeCompleted",
+      challengeId: challengeId,
+      winnerId: winnerId,
+      challenge: enrichedChallenge,
+    });
+  } catch (error) {
+    logger.error("Failed to claim victory:", {
+      error: error instanceof Error ? error.message : String(error),
+      challengeId,
+    });
+
+    try {
       ws.send(
         JSON.stringify({
-          type: "error",
-          message: "Failed to process message",
+          type: "claimVictoryFailed",
+          message: "Failed to update challenge status.",
         })
       );
+    } catch (sendError) {
+      logger.error("Failed to send error:", sendError);
     }
-  });
+  }
+}
 
-  ws.on("close", () => {
-    for (const [username, client] of onlineUsers.entries()) {
-      if (client === ws) {
-        onlineUsers.delete(username);
-        logger.info(`${username} disconnected`);
-        broadcastOnlineUsers();
-        break;
+// Graceful Shutdown Handler
+function setupGracefulShutdown(): void {
+  const shutdown = async () => {
+    logger.info("Received shutdown signal, closing server gracefully...");
+
+    // Stop accepting new connections
+    wss.close(() => {
+      logger.info("WebSocket server closed");
+    });
+
+    // Clear intervals
+    if (cleanupInterval) {
+      clearInterval(cleanupInterval);
+    }
+
+    // Close all connections
+    wss.clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.close(1000, "Server shutting down");
       }
     }
     console.log("WebSocket connection closed");

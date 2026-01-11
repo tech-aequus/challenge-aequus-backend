@@ -36,17 +36,18 @@ model User {
   phoneVerificationExpiry             DateTime?
   phoneVerified                       DateTime?
   accounts                            Account[]
-  BattleRoyaleParticipant             BattleRoyaleParticipant[]
-  Challenge_Challenge_creatorIdToUser Challenge[]               @relation("Challenge_creatorIdToUser")
-  Challenge_Challenge_inviteeIdToUser Challenge[]               @relation("Challenge_inviteeIdToUser")
-  adminOf                             Chat[]                    @relation("ChatAdmin")
+  Challenge_Challenge_creatorIdToUser Challenge[]            @relation("Challenge_creatorIdToUser")
+  Challenge_Challenge_inviteeIdToUser Challenge[]            @relation("Challenge_inviteeIdToUser")
+  Challenge_Challenge_winnerIdToUser  Challenge[]            @relation("Challenge_winnerIdToUser")
+  adminOf                             Chat[]                 @relation("ChatAdmin")
   messages                            ChatMessage[]
   Claim                               Claim[]
   Event                               Event[]
   Faction                             Faction[]
   FalseClaimReport                    FalseClaimReport[]
-  receivedRequests                    FriendRequest[]           @relation("ReceivedRequests")
-  sentRequests                        FriendRequest[]           @relation("SentRequests")
+  receivedRequests                    FriendRequest[]        @relation("ReceivedRequests")
+  sentRequests                        FriendRequest[]        @relation("SentRequests")
+  KYC                                 KYC?
   factions                            Member[]
   MessageReadStatus                   MessageReadStatus[]
   openChallenges                      OpenChallenge[]           @relation("Creator")
@@ -124,8 +125,9 @@ model Challenge {
   winnerId                       String?
   xp                             Int                @default(0)
   isOpen                         Boolean            @default(false)
-  User_Challenge_creatorIdToUser User               @relation("Challenge_creatorIdToUser", fields: [creatorId], references: [name])
-  User_Challenge_inviteeIdToUser User?              @relation("Challenge_inviteeIdToUser", fields: [inviteeId], references: [name])
+  User_Challenge_creatorIdToUser User               @relation("Challenge_creatorIdToUser", fields: [creatorId], references: [id])
+  User_Challenge_inviteeIdToUser User?              @relation("Challenge_inviteeIdToUser", fields: [inviteeId], references: [id])
+  User_Challenge_winnerIdToUser  User?              @relation("Challenge_winnerIdToUser", fields: [winnerId], references: [id])
   Claim                          Claim[]
   FalseClaimReport               FalseClaimReport[]
   WinnerSelection                WinnerSelection[]
@@ -418,6 +420,35 @@ model UserChats {
   @@map("_UserChats")
 }
 
+model KYC {
+  id                   String    @id
+  userId               String    @unique
+  firstName            String?
+  lastName             String?
+  otherName            String?
+  dob                  DateTime?
+  country              String?
+  residentialAddress   String?
+  city                 String?
+  postcode             String?
+  phoneNumber          String
+  idType               String?
+  idNumber             String?
+  idKey                String?
+  selfieKey            String?
+  proofOfAddressKey    String?
+  tier                 Int       @default(1)
+  tier1Status          KYCStatus @default(PENDING)
+  tier2Status          KYCStatus @default(PENDING)
+  tier3Status          KYCStatus @default(PENDING)
+  tier1RejectionReason String?
+  tier2RejectionReason String?
+  tier3RejectionReason String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime
+  User                 User      @relation(fields: [userId], references: [id])
+}
+
 enum ChallengeStatus {
   PENDING
   ACCEPTED
@@ -467,4 +498,16 @@ enum Platform {
 enum TeamStatus {
   ACTIVE
   ELIMINATED
+}
+
+enum GameType {
+  SOLO
+  TEAM
+}
+
+enum KYCStatus {
+  PENDING
+  READY_FOR_REVIEW
+  APPROVED
+  REJECTED
 }
