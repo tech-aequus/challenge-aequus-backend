@@ -4,200 +4,47 @@ import { logger } from "./utils/logger";
 import type { $Enums } from "@prisma/client";
 import type { JsonValue } from "@prisma/client/runtime/library";
 
-// Configuration Constants
-const CONFIG = {
-  PORT: Number(process.env.PORT) || 8080,
-  CLEANUP_INTERVAL_MS: 60000, // 1 minute
-  STALE_CHALLENGE_TIMEOUT_MS: 5 * 60 * 1000, // 5 minutes
-  CHALLENGE_EXPIRY_MS: 24 * 60 * 60 * 1000, // 24 hours
-  MAX_CONNECTIONS: 10000,
-} as const;
+const wss = new WebSocketServer({ port: Number(process.env.PORT) || 8080 });
+const onlineUsers = new Map();
+const startChallengeMap = new Map();
 
-// Type Definitions
-interface OnlineUserData {
-  ws: WebSocket;
-  name: string;
-  connectedAt: number;
-}
-
-interface ChallengeStartState {
-  creatorStarted: boolean;
-  opponentStarted: boolean;
-  timestamp: number;
-}
-
-interface MessagePayload {
-  type: string;
-  [key: string]: any;
-}
-
-// In-Memory State Management
-class StateManager {
-  private onlineUsers = new Map<string, OnlineUserData>();
-  private startChallengeMap = new Map<string, ChallengeStartState>();
-  private winnerSelections = new Map<string, Map<string, string>>();
-
-  // Online Users
-  setUserOnline(userId: string, ws: WebSocket, name: string): void {
-    this.onlineUsers.set(userId, { ws, name, connectedAt: Date.now() });
-  }
-
-  getUserData(userId: string): OnlineUserData | undefined {
-    return this.onlineUsers.get(userId);
-  }
-
-  removeUser(userId: string): boolean {
-    return this.onlineUsers.delete(userId);
-  }
-
-  getAllOnlineUsers(): Array<{ id: string; name: string }> {
-    return Array.from(this.onlineUsers.entries()).map(([userId, data]) => ({
-      id: userId,
-      name: data.name,
-    }));
-  }
-
-  isUserOnline(userId: string): boolean {
-    return this.onlineUsers.has(userId);
-  }
-
-  forEachUser(callback: (data: OnlineUserData, userId: string) => void): void {
-    this.onlineUsers.forEach(callback);
-  }
-
-  findUserByWebSocket(ws: WebSocket): [string, OnlineUserData] | undefined {
-    for (const [userId, data] of this.onlineUsers.entries()) {
-      if (data.ws === ws) return [userId, data];
-    }
-    return undefined;
-  }
-
-  // Challenge Start State
-  getChallengeState(challengeId: string): ChallengeStartState | undefined {
-    return this.startChallengeMap.get(challengeId);
-  }
-
-  initializeChallengeState(challengeId: string): ChallengeStartState {
-    const state: ChallengeStartState = {
-      creatorStarted: false,
-      opponentStarted: false,
-      timestamp: Date.now(),
-    };
-    this.startChallengeMap.set(challengeId, state);
-    return state;
-  }
-
-  deleteChallengeState(challengeId: string): boolean {
-    return this.startChallengeMap.delete(challengeId);
-  }
-
-  cleanupStaleChallenges(timeoutMs: number): number {
-    const now = Date.now();
-    let cleanedCount = 0;
-
-    for (const [challengeId, data] of this.startChallengeMap.entries()) {
-      if (now - data.timestamp > timeoutMs) {
-        this.startChallengeMap.delete(challengeId);
-        cleanedCount++;
-        logger.info(
-          `Cleaned up stale start attempt for challenge ${challengeId}`
-        );
-      }
-    }
-
-    return cleanedCount;
-  }
-
-  // Winner Selections
-  getWinnerSelections(challengeId: string): Map<string, string> | undefined {
-    return this.winnerSelections.get(challengeId);
-  }
-
-  setWinnerSelection(
-    challengeId: string,
-    playerId: string,
-    winnerId: string
-  ): void {
-    if (!this.winnerSelections.has(challengeId)) {
-      this.winnerSelections.set(challengeId, new Map());
-    }
-    this.winnerSelections.get(challengeId)!.set(playerId, winnerId);
-  }
-
-  deleteWinnerSelections(challengeId: string): boolean {
-    return this.winnerSelections.delete(challengeId);
-  }
-
-  getAllWinnerSelections(): Map<string, Map<string, string>> {
-    return this.winnerSelections;
-  }
-}
-
-const state = new StateManager();
-const wss = new WebSocketServer({
-  port: CONFIG.PORT,
-  maxPayload: 100 * 1024, // 100KB max message size
-});
-
-// Periodic Cleanup Tasks
-const cleanupInterval = setInterval(() => {
-  const cleaned = state.cleanupStaleChallenges(
-    CONFIG.STALE_CHALLENGE_TIMEOUT_MS
-  );
-  if (cleaned > 0) {
-    logger.info(`Cleanup: Removed ${cleaned} stale challenge start attempts`);
-  }
-}, CONFIG.CLEANUP_INTERVAL_MS);
+const winnerSelections = new Map(); // Format: Map<gameId, Map<playerId, selectedWinner>>
 
 // Load winner selections from database on startup
-async function loadWinnerSelectionsFromDB(): Promise<void> {
+async function loadWinnerSelectionsFromDB() {
   try {
     const selections = await prisma.winnerSelection.findMany({
-      where: {
+      include: {
         Challenge: {
-          status: "IN_PROGRESS", // Only fetch active challenges
-        },
-      },
-      select: {
-        challengeId: true,
-        playerId: true,
-        selectedWinner: true,
-        Challenge: {
-          select: { status: true },
-        },
-      },
+          select: { status: true }
+        }
+      }
     });
 
-    let loadedCount = 0;
-    selections.forEach((selection) => {
-      state.setWinnerSelection(
-        selection.challengeId,
-        selection.playerId,
-        selection.selectedWinner
-      );
-      loadedCount++;
+    selections.forEach(selection => {
+      // Only load selections for active challenges
+      if (selection.Challenge.status === 'IN_PROGRESS') {
+        if (!winnerSelections.has(selection.challengeId)) {
+          winnerSelections.set(selection.challengeId, new Map());
+        }
+        const gameSelections = winnerSelections.get(selection.challengeId);
+        gameSelections.set(selection.playerId, selection.selectedWinner);
+      }
     });
 
-    logger.info(
-      `Successfully loaded ${loadedCount} winner selections for IN_PROGRESS challenges`
-    );
+    logger.info(`Loaded ${selections.length} winner selections from database`);
   } catch (error) {
-    logger.error(`Failed to load winner selections from database:`, {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    throw error; // Re-throw to prevent server from starting with bad state
+    logger.error(`Failed to load winner selections from database: ${error}`);
   }
 }
 
 // Helper function to enrich challenge data with winner selections
-function enrichChallengeWithSelections<T extends { id: string }>(
-  challenge: T
-): T & { winnerSelections: Record<string, string> } {
-  const selections = state.getWinnerSelections(challenge.id);
+function enrichChallengeWithSelections(challenge: any) {
+  const selections = winnerSelections.get(challenge.id);
   const selectionsObj: Record<string, string> = {};
 
   if (selections) {
-    selections.forEach((winner, player) => {
+    selections.forEach((winner: string, player: string) => {
       selectionsObj[player] = winner;
     });
   }
@@ -208,21 +55,16 @@ function enrichChallengeWithSelections<T extends { id: string }>(
   };
 }
 
-// Broadcast Functions
-function broadcastOnlineUsers(): void {
-  const onlineUsersList = state.getAllOnlineUsers();
+function broadcastOnlineUsers() {
+  const onlineUsernames = Array.from(onlineUsers.keys());
   const message = JSON.stringify({
     type: "onlineUsers",
-    users: onlineUsersList,
+    users: onlineUsernames,
   });
 
-  state.forEachUser((data) => {
-    if (data.ws.readyState === WebSocket.OPEN) {
-      try {
-        data.ws.send(message);
-      } catch (error) {
-        logger.error(`Failed to send online users to client:`, error);
-      }
+  onlineUsers.forEach((ws) => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(message);
     }
   });
 }
@@ -271,7 +113,8 @@ type ChallengeData = {
 
 function broadcastChallengeUpdate(updatedChallenge: ChallengeData): void {
   const enrichedChallenge = enrichChallengeWithSelections(updatedChallenge);
-  const message: MessagePayload = {
+
+  const message = JSON.stringify({
     type: "challengeAccepted",
     challenge: enrichedChallenge,
   };
@@ -312,17 +155,12 @@ function broadcastNewChallenge(newChallenge: ChallengeData): void {
 
 function broadcastOpenChallenge(newChallenge: ChallengeData): void {
   const message = JSON.stringify({
-    type: "openChallengeCreated",
-    newChallenge,
+    type: `challengeStartedBy`,
+    updateState: enrichedState,
   });
-
-  state.forEachUser((data) => {
-    if (data.ws.readyState === WebSocket.OPEN) {
-      try {
-        data.ws.send(message);
-      } catch (error) {
-        logger.error("Failed to broadcast open challenge:", error);
-      }
+  usersInChallenge.forEach((ws) => {
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(message);
     }
   });
 }
@@ -387,33 +225,22 @@ wss.on("connection", (ws: WebSocket) => {
       }
     }
   });
+}
 
-  ws.on("close", () => {
-    const userEntry = state.findUserByWebSocket(ws);
-    if (userEntry) {
-      const [userId, data] = userEntry;
-      state.removeUser(userId);
-      broadcastOnlineUsers();
-    }
-  });
-});
+wss.on("connection", (ws: WebSocket) => {
+  logger.info("A new client connected");
+  ws.on("error", console.error);
 
-// Message Handlers
-async function handleSetOnline(
-  ws: WebSocket,
-  userInfo: MessagePayload
-): Promise<void> {
-  const { userId, online } = userInfo;
+  ws.on("message", async (message: string) => {
+    try {
+      const userInfo = JSON.parse(message);
+      console.log("Received message:", userInfo);
 
-  if (!userId) {
-    logger.warn("setOnline called without userId");
-    return;
-  }
-
-  const userExists = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { id: true, name: true },
-  });
+      if (userInfo.type === "setOnline") {
+        const userExists = await prisma.user.findUnique({
+          where: { name: userInfo.username },
+          select: { id: true },
+        });
 
   if (online && userExists) {
     state.setUserOnline(userId, ws, userExists.name);
@@ -529,57 +356,60 @@ async function handleGetWinnerSelections(
       },
     });
 
-    // Build response object
-    const allSelections: Record<string, Record<string, string>> = {};
+          logger.info(`📊 Found ${dbSelections.length} winner selections in database`);
 
-    dbSelections.forEach((selection) => {
-      if (!allSelections[selection.challengeId]) {
-        allSelections[selection.challengeId] = {};
+          // Update memory cache and build response
+          const allSelections: Record<string, Record<string, string>> = {};
+
+          dbSelections.forEach(selection => {
+            // Only include selections for active challenges
+            if (selection.Challenge.status === 'IN_PROGRESS') {
+              if (!allSelections[selection.challengeId]) {
+                allSelections[selection.challengeId] = {};
+              }
+              allSelections[selection.challengeId][selection.playerId] = selection.selectedWinner;
+
+              // Update memory cache
+              if (!winnerSelections.has(selection.challengeId)) {
+                winnerSelections.set(selection.challengeId, new Map());
+              }
+              const gameSelections = winnerSelections.get(selection.challengeId);
+              gameSelections.set(selection.playerId, selection.selectedWinner);
+            } else {
+              logger.info(`⏭️ Skipping selection for challenge ${selection.challengeId} with status ${selection.Challenge.status}`);
+            }
+          });
+
+          logger.info(`📤 Sending winner selections to client:`, JSON.stringify(allSelections, null, 2));
+
+          ws.send(
+            JSON.stringify({
+              type: "allWinnerSelections",
+              selections: allSelections,
+            })
+          );
+        } catch (error) {
+          logger.error(`Failed to load winner selections from database: ${error}`);
+          // Fallback to memory cache
+          const allSelections: Record<string, Record<string, string>> = {};
+          winnerSelections.forEach((gameSelections, gameId: string) => {
+            const selectionsObj: Record<string, string> = {};
+            gameSelections.forEach((winner: string, player: string) => {
+              selectionsObj[player] = winner;
+            });
+            allSelections[gameId] = selectionsObj;
+          });
+
+          logger.info(`📤 Sending fallback winner selections to client:`, JSON.stringify(allSelections, null, 2));
+
+          ws.send(
+            JSON.stringify({
+              type: "allWinnerSelections",
+              selections: allSelections,
+            })
+          );
+        }
       }
-      allSelections[selection.challengeId][selection.playerId] =
-        selection.selectedWinner;
-
-      // Update memory cache
-      state.setWinnerSelection(
-        selection.challengeId,
-        selection.playerId,
-        selection.selectedWinner
-      );
-    });
-
-    ws.send(
-      JSON.stringify({
-        type: "allWinnerSelections",
-        selections: allSelections,
-      })
-    );
-  } catch (error) {
-    logger.error(`Failed to load winner selections:`, error);
-
-    // Fallback to memory cache
-    const allSelections: Record<string, Record<string, string>> = {};
-    const cachedSelections = state.getAllWinnerSelections();
-
-    cachedSelections.forEach((gameSelections, gameId) => {
-      const selectionsObj: Record<string, string> = {};
-      gameSelections.forEach((winner, player) => {
-        selectionsObj[player] = winner;
-      });
-      allSelections[gameId] = selectionsObj;
-    });
-
-    try {
-      ws.send(
-        JSON.stringify({
-          type: "allWinnerSelections",
-          selections: allSelections,
-        })
-      );
-    } catch (sendError) {
-      logger.error("Failed to send fallback selections:", sendError);
-    }
-  }
-}
 
 /**
  * Handle broadcasting an already-created challenge from the database
@@ -755,12 +585,15 @@ async function handleJoinOpenChallenge(
       return;
     }
 
-    if (user.coins < challenge.coins) {
-      sendError(
-        `Insufficient coins. You need ${challenge.coins} coins but only have ${user.coins}`
-      );
-      return;
-    }
+          if (user.coins < challenge.coins) {
+            ws.send(
+              JSON.stringify({
+                type: "joinOpenChallengeFailed",
+                message: `Insufficient coins. You need ${challenge.coins} coins but only have ${user.coins}`,
+              })
+            );
+            return;
+          }
 
     // Update challenge - set inviteeId and accept it
     const updatedChallenge = await prisma.challenge.update({
@@ -825,10 +658,16 @@ async function handleStartChallenge(
       where: { id: challengeId },
     });
 
-    if (!challenge) {
-      sendError("Challenge not found");
-      return;
-    }
+        if (!challenge) {
+          ws.send(
+            JSON.stringify({
+              type: "failedToStartChallenge",
+              message: "Challenge not found",
+            })
+          );
+          logger.info(`Challenge ${gameId} not found`);
+          return;
+        }
 
     // Only allow invitee to start
     if (userId !== challenge.inviteeId) {
@@ -929,36 +768,64 @@ async function handleClaimVictory(
       select: { creatorId: true, inviteeId: true, coins: true },
     });
 
-    if (!challenge) {
-      try {
-        ws.send(
-          JSON.stringify({
-            type: "claimVictoryFailed",
-            message: "Challenge not found.",
-          })
+        if (!challenge) {
+          ws.send(
+            JSON.stringify({
+              type: "claimVictoryFailed",
+              message: "Challenge not found.",
+            })
+          );
+          return;
+        }
+
+        const creatorSelection = gameSelections.get(challenge.creatorId);
+        const inviteeSelection = gameSelections.get(challenge.inviteeId);
+
+        logger.info(
+          `Victory claim attempt - GameId: ${gameId}, CreatorSelection: ${creatorSelection}, InviteeSelection: ${inviteeSelection}, ClaimedBy: ${winnerUsername}`
         );
-      } catch (error) {
-        logger.error("Failed to send error:", error);
-      }
-      return;
-    }
 
-    const creatorSelection = gameSelections.get(challenge.creatorId);
-    const inviteeSelection = gameSelections.get(challenge.inviteeId!);
+        // Check if both players have made selections and they agree
+        if (!creatorSelection || !inviteeSelection) {
+          const incompleteSelectionsMessage = JSON.stringify({
+            type: "claimVictoryFailed",
+            message:
+              "Both players must select a winner before claiming victory.",
+          });
 
-    if (!creatorSelection || !inviteeSelection) {
-      await sendErrorToBoth(
-        "Both players must select a winner before claiming victory."
-      );
-      return;
-    }
+          const creatorWs = onlineUsers.get(challenge.creatorId);
+          const inviteeWs = onlineUsers.get(challenge.inviteeId);
 
-    if (creatorSelection !== inviteeSelection) {
-      await sendErrorToBoth(
-        "Players disagree on the winner. Please discuss and reselect."
-      );
-      return;
-    }
+          if (creatorWs && creatorWs.readyState === WebSocket.OPEN) {
+            creatorWs.send(incompleteSelectionsMessage);
+          }
+          if (inviteeWs && inviteeWs.readyState === WebSocket.OPEN) {
+            inviteeWs.send(incompleteSelectionsMessage);
+          }
+
+          return;
+        }
+
+        if (creatorSelection !== inviteeSelection) {
+          // Broadcast disagreement message to both players
+          const disagreementMessage = JSON.stringify({
+            type: "claimVictoryFailed",
+            message:
+              "Players disagree on the winner. Please discuss and reselect.",
+          });
+
+          const creatorWs = onlineUsers.get(challenge.creatorId);
+          const inviteeWs = onlineUsers.get(challenge.inviteeId);
+
+          if (creatorWs && creatorWs.readyState === WebSocket.OPEN) {
+            creatorWs.send(disagreementMessage);
+          }
+          if (inviteeWs && inviteeWs.readyState === WebSocket.OPEN) {
+            inviteeWs.send(disagreementMessage);
+          }
+
+          return;
+        }
 
     const winnerId = creatorSelection;
     const loserId =
@@ -1052,36 +919,12 @@ function setupGracefulShutdown(): void {
       if (client.readyState === WebSocket.OPEN) {
         client.close(1000, "Server shutting down");
       }
-    });
+    }
+    console.log("WebSocket connection closed");
+  });
+});
 
-    // Disconnect Prisma
-    await prisma.$disconnect();
-    logger.info("Database connections closed");
+// Load winner selections from database on server startup
+loadWinnerSelectionsFromDB();
 
-    process.exit(0);
-  };
-
-  process.on("SIGTERM", shutdown);
-  process.on("SIGINT", shutdown);
-}
-
-// Server Startup
-async function startServer(): Promise<void> {
-  try {
-    // Load initial data
-    await loadWinnerSelectionsFromDB();
-
-    // Setup graceful shutdown
-    setupGracefulShutdown();
-
-    logger.info(`WebSocket server running on ws://localhost:${CONFIG.PORT}`);
-    logger.info(`Max connections: ${CONFIG.MAX_CONNECTIONS}`);
-    logger.info(`Cleanup interval: ${CONFIG.CLEANUP_INTERVAL_MS}ms`);
-  } catch (error) {
-    logger.error("Failed to start server:", error);
-    process.exit(1);
-  }
-}
-
-// Start the server
-startServer();
+logger.info(`WebSocket server is running on ws://localhost:${process.env.PORT || 8080}`);
